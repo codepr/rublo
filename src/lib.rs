@@ -1,12 +1,27 @@
 use bitvec::prelude::*;
 use fasthash::{murmur3::Hash32, FastHash};
+use std::error::Error;
 use std::f64;
+use std::fmt;
+use std::result::Result;
 
 pub struct BloomFilter {
     capacity: usize,
+    size: usize,
     bitmap: BitVec,
     hash_count: u32,
 }
+
+#[derive(Debug)]
+struct BloomFilterError(String);
+
+impl fmt::Display for BloomFilterError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Bloomfilter error: {}", self.0)
+    }
+}
+
+impl Error for BloomFilterError {}
 
 impl BloomFilter {
     pub fn new(capacity: usize, fpp: f64) -> BloomFilter {
@@ -15,24 +30,40 @@ impl BloomFilter {
         let hash_count = Self::get_optimal_hash_count(bitmap_size, capacity);
         BloomFilter {
             capacity: bitmap_size,
+            size: 0,
             bitmap: bitvec![0; bitmap_size],
             hash_count: hash_count,
         }
     }
 
-    pub fn size(&self) -> usize {
+    pub fn capacity(&self) -> usize {
         self.capacity
+    }
+
+    pub fn size(&self) -> usize {
+        self.size
     }
 
     pub fn hash_count(&self) -> u32 {
         self.hash_count
     }
 
-    pub fn set(&mut self, bytes: &[u8]) {
+    pub fn set(&mut self, bytes: &[u8]) -> Result<bool, Box<dyn Error>> {
+        let mut allbits = true;
+        if self.size() == self.capacity() {
+            return Err(Box::new(BloomFilterError("Full capacity reached".into())));
+        }
         for i in 0..self.hash_count {
             let hash = (Hash32::hash_with_seed(bytes, i) as usize) % self.capacity;
+            if allbits && self.bitmap[hash] {
+                allbits = false;
+            }
             self.bitmap.set(hash, true);
         }
+        if allbits {
+            self.size += 1
+        }
+        Ok(!allbits)
     }
 
     pub fn check(&self, bytes: &[u8]) -> bool {
