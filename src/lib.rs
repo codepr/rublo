@@ -3,25 +3,25 @@ use fasthash::{murmur3::Hash32, FastHash};
 use std::f64;
 
 pub struct BloomFilter {
-    size: usize,
+    capacity: usize,
     bitmap: BitVec,
     hash_count: u32,
 }
 
 impl BloomFilter {
-    pub fn new(items_count: usize, fpp: f64) -> BloomFilter {
-        assert!(items_count > 0 && fpp > 0.);
-        let bitmap_size = Self::get_size(items_count, fpp);
-        let hash_count = Self::get_optimal_hash_count(bitmap_size, items_count);
+    pub fn new(capacity: usize, fpp: f64) -> BloomFilter {
+        assert!(capacity > 0 && fpp > 0.);
+        let bitmap_size = Self::get_bitmap_size(capacity, fpp);
+        let hash_count = Self::get_optimal_hash_count(bitmap_size, capacity);
         BloomFilter {
-            size: bitmap_size,
+            capacity: bitmap_size,
             bitmap: bitvec![0; bitmap_size],
             hash_count: hash_count,
         }
     }
 
     pub fn size(&self) -> usize {
-        self.size
+        self.capacity
     }
 
     pub fn hash_count(&self) -> u32 {
@@ -30,14 +30,14 @@ impl BloomFilter {
 
     pub fn set(&mut self, bytes: &[u8]) {
         for i in 0..self.hash_count {
-            let hash = (Hash32::hash_with_seed(bytes, i) as usize) % self.size;
+            let hash = (Hash32::hash_with_seed(bytes, i) as usize) % self.capacity;
             self.bitmap.set(hash, true);
         }
     }
 
     pub fn check(&self, bytes: &[u8]) -> bool {
         for i in 0..self.hash_count {
-            let hash = (Hash32::hash_with_seed(bytes, i) as usize) % self.size;
+            let hash = (Hash32::hash_with_seed(bytes, i) as usize) % self.capacity;
             if self.bitmap[hash] == false {
                 return false;
             }
@@ -49,7 +49,7 @@ impl BloomFilter {
         self.bitmap.clear()
     }
 
-    fn get_size(items_count: usize, fpp: f64) -> usize {
+    fn get_bitmap_size(items_count: usize, fpp: f64) -> usize {
         let log2 = f64::consts::LN_2;
         let log2_2 = log2 * log2;
         let m = -((items_count as f64) * fpp.ln()) / log2_2;
