@@ -45,6 +45,10 @@ impl BloomFilter {
         return true;
     }
 
+    pub fn clear(&mut self) {
+        self.bitmap.clear()
+    }
+
     fn get_size(items_count: usize, fpp: f64) -> usize {
         let log2 = f64::consts::LN_2;
         let log2_2 = log2 * log2;
