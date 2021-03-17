@@ -77,7 +77,8 @@ impl BloomFilter {
     }
 
     pub fn clear(&mut self) {
-        self.bitmap.clear()
+        self.bitmap.clear();
+        self.size = 0;
     }
 
     fn get_bitmap_size(items_count: usize, fpp: f64) -> usize {
@@ -100,13 +101,13 @@ mod tests {
     #[test]
     fn test_new() {
         let bf = BloomFilter::new(5, 0.01);
-        assert_eq!(bf.size(), 48);
+        assert_eq!(bf.capacity(), 48);
         assert_eq!(bf.hash_count(), 7);
         let bf = BloomFilter::new(1500, 0.001);
-        assert_eq!(bf.size(), 21567);
+        assert_eq!(bf.capacity(), 21567);
         assert_eq!(bf.hash_count(), 10);
         let bf = BloomFilter::new(400, 0.05);
-        assert_eq!(bf.size(), 2495);
+        assert_eq!(bf.capacity(), 2495);
         assert_eq!(bf.hash_count(), 5);
     }
 
@@ -114,7 +115,7 @@ mod tests {
     fn test_check() {
         let mut bf = BloomFilter::new(5, 0.01);
         for word in ["Vega", "Pandora", "Magnetar", "Pulsar", "Nebula"].iter() {
-            bf.set(word.as_bytes())
+            bf.set(word.as_bytes()).unwrap();
         }
         for want in [
             ("Pandora", true),
