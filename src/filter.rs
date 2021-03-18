@@ -24,6 +24,18 @@ impl fmt::Display for BloomFilterError {
 impl Error for BloomFilterError {}
 
 impl BloomFilter {
+    /// Create a new BloomFilter, a probabilistic space-efficient data structure which is
+    /// used to test if an element is a member of a set, trading precision for efficiency
+    /// and performance, allowing a tiny false-positive probability against a 0 false negative
+    /// probability. This means that when tested, an item might be in the set or it absolutely
+    /// isn't.
+    ///
+    /// The capacity is the number of items expected to be stored in the filter, fpp represents
+    /// the false positive probability.
+    ///
+    /// # Panics
+    ///
+    /// The `new` function will panic if the size is zero or fpp is zero.
     pub fn new(capacity: usize, fpp: f64) -> BloomFilter {
         assert!(capacity > 0 && fpp > 0.);
         let bitmap_size = Self::get_bitmap_size(capacity, fpp);

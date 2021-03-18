@@ -2,7 +2,7 @@ use crate::filter::BloomFilter;
 use std::error::Error;
 use std::result::Result;
 
-const RATIO: f64 = 0.9;
+const FALSE_POSITIVE_PROBABILITY_RATIO: f64 = 0.9;
 
 #[derive(Copy, Clone)]
 pub enum ScaleFactor {
@@ -51,13 +51,13 @@ impl ScalableBloomFilter {
             if f.size() == f.capacity() {
                 self.add_filter(
                     self.initial_capacity * self.scale_factor as usize,
-                    self.fpp * RATIO,
+                    self.fpp * FALSE_POSITIVE_PROBABILITY_RATIO,
                 );
             }
         } else {
             self.add_filter(
                 self.initial_capacity * self.scale_factor as usize,
-                self.fpp * RATIO,
+                self.fpp * FALSE_POSITIVE_PROBABILITY_RATIO,
             );
         }
         let filter = self.filters.last_mut().unwrap();
