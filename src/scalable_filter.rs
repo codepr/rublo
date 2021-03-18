@@ -1,6 +1,7 @@
 use crate::filter::BloomFilter;
 use std::error::Error;
 use std::result::Result;
+use std::time::SystemTime;
 
 const FALSE_POSITIVE_PROBABILITY_RATIO: f64 = 0.9;
 
@@ -11,19 +12,23 @@ pub enum ScaleFactor {
 }
 
 pub struct ScalableBloomFilter {
+    name: String,
     initial_capacity: usize,
     filters: Vec<BloomFilter>,
     fpp: f64,
     scale_factor: ScaleFactor,
+    creation_time: SystemTime,
 }
 
 impl ScalableBloomFilter {
-    pub fn new(initial_capacity: usize, fpp: f64, scale_factor: ScaleFactor) -> Self {
+    pub fn new(name: String, initial_capacity: usize, fpp: f64, scale_factor: ScaleFactor) -> Self {
         Self {
+            name,
             initial_capacity,
             filters: Vec::new(),
             fpp: fpp,
             scale_factor: scale_factor,
+            creation_time: SystemTime::now(),
         }
     }
 
@@ -84,7 +89,8 @@ mod tests {
 
     #[test]
     fn test_set() {
-        let mut sbf = ScalableBloomFilter::new(5, 0.01, ScaleFactor::SmallScaleSize);
+        let mut sbf =
+            ScalableBloomFilter::new("test-sbf".into(), 5, 0.01, ScaleFactor::SmallScaleSize);
         for word in ["Vega", "Pandora", "Magnetar", "Pulsar", "Nebula"].iter() {
             sbf.set(word.as_bytes()).unwrap();
         }
