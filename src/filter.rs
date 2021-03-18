@@ -48,6 +48,10 @@ impl BloomFilter {
         self.hash_count
     }
 
+    pub fn byte_space(&self) -> usize {
+        self.capacity() / 8
+    }
+
     pub fn set(&mut self, bytes: &[u8]) -> Result<bool, Box<dyn Error>> {
         let mut allbits = true;
         if self.size() == self.capacity() {
@@ -109,6 +113,8 @@ mod tests {
         let bf = BloomFilter::new(400, 0.05);
         assert_eq!(bf.capacity(), 2495);
         assert_eq!(bf.hash_count(), 5);
+        let bf = BloomFilter::new(192, 0.05);
+        assert_eq!(bf.byte_space(), 149)
     }
 
     #[test]

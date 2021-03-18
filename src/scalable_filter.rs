@@ -39,6 +39,10 @@ impl ScalableBloomFilter {
         self.filters.iter().fold(0, |acc, x| acc + x.size())
     }
 
+    pub fn byte_space(&self) -> usize {
+        self.filters.iter().fold(0, |acc, x| acc + x.byte_space())
+    }
+
     pub fn set(&mut self, bytes: &[u8]) -> Result<bool, Box<dyn Error>> {
         if self.check(bytes) {
             return Ok(true);
