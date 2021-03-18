@@ -27,6 +27,10 @@ impl ScalableBloomFilter {
         }
     }
 
+    pub fn filter_count(&self) -> usize {
+        self.filters.len()
+    }
+
     pub fn capacity(&self) -> usize {
         self.filters.iter().fold(0, |acc, x| acc + x.capacity())
     }
@@ -52,7 +56,7 @@ impl ScalableBloomFilter {
                 self.fpp * RATIO,
             );
         }
-        let filter = self.filters.last().unwrap();
+        let filter = self.filters.last_mut().unwrap();
         filter.set(bytes)
     }
 
@@ -65,7 +69,37 @@ impl ScalableBloomFilter {
         return false;
     }
 
-    fn add_filter(&mut self, capcity: usize, fpp: f64) {
+    fn add_filter(&mut self, capacity: usize, fpp: f64) {
         self.filters.push(BloomFilter::new(capacity, fpp))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_set() {
+        let mut sbf = ScalableBloomFilter::new(5, 0.01, ScaleFactor::SmallScaleSize);
+        for word in ["Vega", "Pandora", "Magnetar", "Pulsar", "Nebula"].iter() {
+            sbf.set(word.as_bytes()).unwrap();
+        }
+        for want in [
+            ("Pandora", true),
+            ("Magnetar", true),
+            ("Blazar", false),
+            ("Vega", true),
+            ("Dwarf", false),
+            ("Trail", false),
+        ]
+        .iter()
+        {
+            assert_eq!(sbf.check(want.0.as_bytes()), want.1);
+        }
+        assert_eq!(sbf.filter_count(), 1);
+        for word in ["Collider", "Neutron", "Positron", "Hyperion", "Arcadia"].iter() {
+            sbf.set(word.as_bytes()).unwrap();
+        }
+        assert_eq!(sbf.size(), 2);
     }
 }
