@@ -1,5 +1,121 @@
+use std::fmt;
+use std::result::Result;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::time::{sleep, Duration};
+
+#[derive(Debug, Clone)]
+struct ParserError {
+    message: String,
+}
+
+impl fmt::Display for ParserError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "parser error: {}", self.message)
+    }
+}
+
+#[derive(Debug, PartialEq)]
+enum Command {
+    Create(String, usize, f64),
+    Set(String, String),
+    Check(String, String),
+}
+
+fn parse(line: &str) -> Result<Command, ParserError> {
+    let mut token = line.split(" ");
+    let cmd = match token.next() {
+        Some(c) if c == "create" => {
+            let name = token
+                .next()
+                .ok_or(ParserError {
+                    message: "missing name".into(),
+                })
+                .map(|s| s.to_string())?;
+            let capacity = token
+                .next()
+                .ok_or(ParserError {
+                    message: "missing capacity".into(),
+                })
+                .map(|s| {
+                    s.parse::<usize>().map_err(|_| ParserError {
+                        message: "capacity must be an i64 value".into(),
+                    })
+                })?;
+            let fpp = token
+                .next()
+                .ok_or(ParserError {
+                    message: "missing false-positive probability".into(),
+                })
+                .map(|s| {
+                    s.parse::<f64>().map_err(|_| ParserError {
+                        message: "false-positive probability must be a f64 value".into(),
+                    })
+                })?;
+            Ok(Command::Create(name, capacity?, fpp?))
+        }
+        Some(c) if c == "set" => {
+            let name = token
+                .next()
+                .ok_or(ParserError {
+                    message: "missing name".into(),
+                })
+                .map(|s| s.to_string())?;
+            let key = token
+                .next()
+                .ok_or(ParserError {
+                    message: "missing key".into(),
+                })
+                .map(|s| s.to_string())?;
+            Ok(Command::Set(name, key))
+        }
+        Some(c) if c == "check" => {
+            let name = token
+                .next()
+                .ok_or(ParserError {
+                    message: "missing name".into(),
+                })
+                .map(|s| s.to_string())?;
+            let key = token
+                .next()
+                .ok_or(ParserError {
+                    message: "missing key".into(),
+                })
+                .map(|s| s.to_string())?;
+            Ok(Command::Check(name, key))
+        }
+        Some(_) => Err(ParserError {
+            message: "unknown command".into(),
+        }),
+        None => Err(ParserError {
+            message: "missing command".into(),
+        }),
+    };
+    cmd
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{parse, Command, ParserError};
+
+    #[test]
+    fn test_parse() -> Result<(), ParserError> {
+        assert_eq!(
+            parse("create foo 5 0.01")?,
+            Command::Create("foo".into(), 5, 0.01)
+        );
+        assert_eq!(
+            parse("check foo bar")?,
+            Command::Check("foo".into(), "bar".into())
+        );
+        assert_eq!(
+            parse("set foo bar")?,
+            Command::Set("foo".into(), "bar".into())
+        );
+        let r = parse("create foo bar 0.01").map_err(|e| e);
+        assert!(r.is_err());
+        Ok(())
+    }
+}
 
 pub type AsyncResult<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
