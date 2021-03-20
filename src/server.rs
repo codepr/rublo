@@ -32,6 +32,7 @@ enum Request {
     Set(String, String),
     Check(String, String),
     Info(String),
+    Drop(String),
 }
 
 enum Response {
@@ -114,6 +115,15 @@ impl Request {
                     .map(|s| s.to_string())?;
                 Ok(Request::Info(name))
             }
+            Some(c) if c == "drop" => {
+                let name = token
+                    .next()
+                    .ok_or(ParserError {
+                        message: "missing filter name".into(),
+                    })
+                    .map(|s| s.to_string())?;
+                Ok(Request::Drop(name))
+            }
             Some(_) => Err(ParserError {
                 message: "unknown command".into(),
             }),
@@ -128,9 +138,9 @@ impl Request {
 impl Response {
     fn serialize(&self) -> String {
         match &*self {
-            Response::Done => format!("Done"),
-            Response::True => format!("True"),
-            Response::False => format!("False"),
+            Response::Done => "Done".into(),
+            Response::True => "True".into(),
+            Response::False => "False".into(),
             Response::Info(name, capacity, size, space, dt) => format!(
                 "{} capacity: {} size: {} space: {} creation: {}",
                 name, capacity, size, space, dt
@@ -288,7 +298,7 @@ fn handle_request(line: &str, db: &FilterDb) -> Response {
                     Response::Done
                 }
             }
-            None => Response::Error(format!("no scalable filter named: {}", name)),
+            None => Response::Error(format!("no scalable filter named {}", name)),
         },
         Request::Check(name, key) => match db.get(&name) {
             Some(sbf) => {
@@ -316,6 +326,10 @@ fn handle_request(line: &str, db: &FilterDb) -> Response {
                 )
             }
             None => Response::Error(format!("no scalable filter named: {}", name)),
+        },
+        Request::Drop(name) => match db.remove(&name) {
+            Some(_) => Response::Done,
+            None => Response::Error(format!("no scalable filter named {}", name)),
         },
     }
 }
