@@ -37,6 +37,9 @@ impl ScalableBloomFilter {
     }
 
     pub fn capacity(&self) -> usize {
+        if self.filters.is_empty() {
+            return self.initial_capacity;
+        }
         self.filters.iter().fold(0, |acc, x| acc + x.capacity())
     }
 
@@ -45,6 +48,9 @@ impl ScalableBloomFilter {
     }
 
     pub fn byte_space(&self) -> usize {
+        if self.filters.is_empty() {
+            return self.initial_capacity / 8;
+        }
         self.filters.iter().fold(0, |acc, x| acc + x.byte_space())
     }
 
