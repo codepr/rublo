@@ -1,5 +1,6 @@
 use crate::scalable_filter::ScalableBloomFilter;
 use crate::AsyncResult;
+use chrono::{DateTime, NaiveDateTime, Utc};
 use futures::SinkExt;
 use std::collections::HashMap;
 use std::fmt;
@@ -30,12 +31,14 @@ enum Request {
     Create(String, usize, f64),
     Set(String, String),
     Check(String, String),
+    Info(String),
 }
 
 enum Response {
     Done,
     True,
     False,
+    Info(String, usize, usize, String, String),
     Error(String),
 }
 
@@ -102,6 +105,15 @@ impl Request {
                     .map(|s| s.to_string())?;
                 Ok(Request::Check(name, key))
             }
+            Some(c) if c == "info" => {
+                let name = token
+                    .next()
+                    .ok_or(ParserError {
+                        message: "missing filter name".into(),
+                    })
+                    .map(|s| s.to_string())?;
+                Ok(Request::Info(name))
+            }
             Some(_) => Err(ParserError {
                 message: "unknown command".into(),
             }),
@@ -119,6 +131,10 @@ impl Response {
             Response::Done => format!("Done"),
             Response::True => format!("True"),
             Response::False => format!("False"),
+            Response::Info(name, capacity, size, space, dt) => format!(
+                "{} capacity: {} size: {} space: {} creation: {}",
+                name, capacity, size, space, dt
+            ),
             Response::Error(message) => format!("Error: {}", message),
         }
     }
@@ -281,6 +297,23 @@ fn handle_request(line: &str, db: &FilterDb) -> Response {
                 } else {
                     Response::False
                 }
+            }
+            None => Response::Error(format!("no scalable filter named: {}", name)),
+        },
+        Request::Info(name) => match db.get(&name) {
+            Some(sbf) => {
+                let (sec, nsec) = (
+                    sbf.creation_time().timestamp(),
+                    sbf.creation_time().timestamp_nanos(),
+                );
+                Response::Info(
+                    name,
+                    sbf.capacity(),
+                    sbf.size(),
+                    format!("{}", sbf.byte_space()),
+                    DateTime::<Utc>::from_utc(NaiveDateTime::from_timestamp(sec, nsec as u32), Utc)
+                        .to_rfc3339(),
+                )
             }
             None => Response::Error(format!("no scalable filter named: {}", name)),
         },

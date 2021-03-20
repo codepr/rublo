@@ -1,7 +1,7 @@
 use crate::filter::BloomFilter;
+use chrono::{DateTime, Utc};
 use std::error::Error;
 use std::result::Result;
-use std::time::SystemTime;
 
 const FALSE_POSITIVE_PROBABILITY_RATIO: f64 = 0.9;
 
@@ -17,7 +17,7 @@ pub struct ScalableBloomFilter {
     filters: Vec<BloomFilter>,
     fpp: f64,
     scale_factor: ScaleFactor,
-    creation_time: SystemTime,
+    creation_time: DateTime<Utc>,
 }
 
 impl ScalableBloomFilter {
@@ -28,7 +28,7 @@ impl ScalableBloomFilter {
             filters: Vec::new(),
             fpp: fpp,
             scale_factor: scale_factor,
-            creation_time: SystemTime::now(),
+            creation_time: Utc::now(),
         }
     }
 
@@ -46,6 +46,10 @@ impl ScalableBloomFilter {
 
     pub fn byte_space(&self) -> usize {
         self.filters.iter().fold(0, |acc, x| acc + x.byte_space())
+    }
+
+    pub fn creation_time(&self) -> DateTime<Utc> {
+        self.creation_time
     }
 
     pub fn set(&mut self, bytes: &[u8]) -> Result<bool, Box<dyn Error>> {
