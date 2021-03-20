@@ -1,7 +1,18 @@
+use crate::scalable_filter::ScalableBloomFilter;
+use crate::AsyncResult;
+use futures::SinkExt;
+use std::collections::HashMap;
 use std::fmt;
 use std::result::Result;
+use std::sync::{Arc, Mutex};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::time::{sleep, Duration};
+use tokio_stream::StreamExt;
+use tokio_util::codec::{Framed, LinesCodec};
+
+// Fixed size exponential backoff value
+const BACKOFF: u64 = 128;
 
 #[derive(Debug, Clone)]
 struct ParserError {
@@ -15,112 +26,133 @@ impl fmt::Display for ParserError {
 }
 
 #[derive(Debug, PartialEq)]
-enum Command {
+enum Request {
     Create(String, usize, f64),
     Set(String, String),
     Check(String, String),
 }
 
-fn parse(line: &str) -> Result<Command, ParserError> {
-    let mut token = line.split(" ");
-    let cmd = match token.next() {
-        Some(c) if c == "create" => {
-            let name = token
-                .next()
-                .ok_or(ParserError {
-                    message: "missing name".into(),
-                })
-                .map(|s| s.to_string())?;
-            let capacity = token
-                .next()
-                .ok_or(ParserError {
-                    message: "missing capacity".into(),
-                })
-                .map(|s| {
-                    s.parse::<usize>().map_err(|_| ParserError {
-                        message: "capacity must be an i64 value".into(),
+enum Response {
+    OK,
+    Yes,
+    No,
+    Error(String),
+}
+
+impl Request {
+    fn parse(line: &str) -> Result<Request, ParserError> {
+        let mut token = line.split(" ");
+        let cmd = match token.next() {
+            Some(c) if c == "create" => {
+                let name = token
+                    .next()
+                    .ok_or(ParserError {
+                        message: "missing name".into(),
                     })
-                })?;
-            let fpp = token
-                .next()
-                .ok_or(ParserError {
-                    message: "missing false-positive probability".into(),
-                })
-                .map(|s| {
-                    s.parse::<f64>().map_err(|_| ParserError {
-                        message: "false-positive probability must be a f64 value".into(),
+                    .map(|s| s.to_string())?;
+                let capacity = token
+                    .next()
+                    .ok_or(ParserError {
+                        message: "missing capacity".into(),
                     })
-                })?;
-            Ok(Command::Create(name, capacity?, fpp?))
+                    .map(|s| {
+                        s.parse::<usize>().map_err(|_| ParserError {
+                            message: "capacity must be an i64 value".into(),
+                        })
+                    })?;
+                let fpp = token
+                    .next()
+                    .ok_or(ParserError {
+                        message: "missing false-positive probability".into(),
+                    })
+                    .map(|s| {
+                        s.parse::<f64>().map_err(|_| ParserError {
+                            message: "false-positive probability must be a f64 value".into(),
+                        })
+                    })?;
+                Ok(Request::Create(name, capacity?, fpp?))
+            }
+            Some(c) if c == "set" => {
+                let name = token
+                    .next()
+                    .ok_or(ParserError {
+                        message: "missing name".into(),
+                    })
+                    .map(|s| s.to_string())?;
+                let key = token
+                    .next()
+                    .ok_or(ParserError {
+                        message: "missing key".into(),
+                    })
+                    .map(|s| s.to_string())?;
+                Ok(Request::Set(name, key))
+            }
+            Some(c) if c == "check" => {
+                let name = token
+                    .next()
+                    .ok_or(ParserError {
+                        message: "missing name".into(),
+                    })
+                    .map(|s| s.to_string())?;
+                let key = token
+                    .next()
+                    .ok_or(ParserError {
+                        message: "missing key".into(),
+                    })
+                    .map(|s| s.to_string())?;
+                Ok(Request::Check(name, key))
+            }
+            Some(_) => Err(ParserError {
+                message: "unknown command".into(),
+            }),
+            None => Err(ParserError {
+                message: "missing command".into(),
+            }),
+        };
+        cmd
+    }
+}
+
+impl Response {
+    fn serialize(&self) -> String {
+        match &*self {
+            Response::OK => format!("OK"),
+            Response::Yes => format!("YES"),
+            Response::No => format!("NO"),
+            Response::Error(message) => format!("<ERR>: {}", message),
         }
-        Some(c) if c == "set" => {
-            let name = token
-                .next()
-                .ok_or(ParserError {
-                    message: "missing name".into(),
-                })
-                .map(|s| s.to_string())?;
-            let key = token
-                .next()
-                .ok_or(ParserError {
-                    message: "missing key".into(),
-                })
-                .map(|s| s.to_string())?;
-            Ok(Command::Set(name, key))
-        }
-        Some(c) if c == "check" => {
-            let name = token
-                .next()
-                .ok_or(ParserError {
-                    message: "missing name".into(),
-                })
-                .map(|s| s.to_string())?;
-            let key = token
-                .next()
-                .ok_or(ParserError {
-                    message: "missing key".into(),
-                })
-                .map(|s| s.to_string())?;
-            Ok(Command::Check(name, key))
-        }
-        Some(_) => Err(ParserError {
-            message: "unknown command".into(),
-        }),
-        None => Err(ParserError {
-            message: "missing command".into(),
-        }),
-    };
-    cmd
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{parse, Command, ParserError};
+    use super::{ParserError, Request};
 
     #[test]
     fn test_parse() -> Result<(), ParserError> {
         assert_eq!(
-            parse("create foo 5 0.01")?,
-            Command::Create("foo".into(), 5, 0.01)
+            Request::parse("create foo 5 0.01")?,
+            Request::Create("foo".into(), 5, 0.01)
         );
         assert_eq!(
-            parse("check foo bar")?,
-            Command::Check("foo".into(), "bar".into())
+            Request::parse("check foo bar")?,
+            Request::Check("foo".into(), "bar".into())
         );
         assert_eq!(
-            parse("set foo bar")?,
-            Command::Set("foo".into(), "bar".into())
+            Request::parse("set foo bar")?,
+            Request::Set("foo".into(), "bar".into())
         );
-        let r = parse("create foo bar 0.01").map_err(|e| e);
+        let r = Request::parse("create foo bar 0.01").map_err(|e| e);
         assert!(r.is_err());
         Ok(())
     }
 }
 
-pub type AsyncResult<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
-
-// Fixed size exponential backoff value
-const BACKOFF: u64 = 128;
+/// Shared state between multiple connections, the filter manager to track and
+/// update multiple scalable filters.
+///
+/// Being shared it's wrapped as an atomic counter reference (Arc) guarded by a mutex.
+type FilterDb = Arc<Mutex<HashMap<String, ScalableBloomFilter>>>;
 
 /// Server listener state. Created in the `run` call. It includes a `run` method
 /// which performs the TCP listening and initialization of per-connection state.
@@ -128,6 +160,8 @@ struct Server {
     listener: TcpListener,
     /// Tcp exponential backoff threshold
     backoff: u64,
+    /// Filter manager map
+    db: FilterDb,
 }
 
 impl Server {
@@ -144,14 +178,34 @@ impl Server {
     /// sockets, accept will fail.
     pub async fn run(&mut self) -> AsyncResult<()> {
         // Loop forever on new connections, accept them and pass the handling
-        // to a worker
+        // to a worker.
         loop {
+            // Accepts a new connection, obtaining a valid socket.
             let stream = self.accept().await?;
-            // Spawn a new task to process the connections.
+            // Create a clone reference of the filters database to be used by this connection.
+            let db = self.db.clone();
+            // Spawn a new task to process the connection, moving the ownership of the cloned
+            // db into the async closure.
             tokio::spawn(async move {
-                if let Err(e) = handle_connection(stream).await {
-                    panic!("Can't spawn `handle_connection` worker: {}", e);
-                };
+                // The protocol is line-based, `LinesCodec` is useful to automatically handle
+                // this by converting the stream of bytes into a stream of lines.
+                let mut lines = Framed::new(stream, LinesCodec::new());
+                // Parse each line returned by the codec and by leveraging `LinesCodec` once again
+                // send a response back to the client.
+                while let Some(result) = lines.next().await {
+                    match result {
+                        Ok(line) => {
+                            let response = handle_request(&line, &db);
+                            let response = response.serialize();
+                            if let Err(e) = lines.send(response.as_str()).await {
+                                println!("error sending response: {:?}", e);
+                            }
+                        }
+                        Err(e) => {
+                            println!("error on deconding from stream: {:?}", e);
+                        }
+                    }
+                }
             });
         }
     }
@@ -189,29 +243,59 @@ impl Server {
     }
 }
 
-/// Process a single connection.
-///
-/// First retrieve a valid backend to forward the request to then call `handle_request` method
-/// to forward the content to it and read the response back.
-///
-/// # Errors
-///
-/// If no backend are available return an `Err`, this can happen if all backends result
-/// offline. Also return an `Err` in case of error reading from the selected backend,
-/// connection can be broken in the mean-time.
-async fn handle_connection(mut stream: TcpStream) -> AsyncResult<()> {
-    // TODO
-    Ok(())
+/// Parse a line into a `Request` and return a `Response` based on the outcome of the
+/// operation requested.
+fn handle_request(line: &str, db: &FilterDb) -> Response {
+    let request = match Request::parse(&line) {
+        Ok(req) => req,
+        Err(e) => return Response::Error(e.message),
+    };
+    let mut db = db.lock().unwrap();
+    match request {
+        Request::Create(name, capacity, fpp) => {
+            db.entry(name.clone()).or_insert(ScalableBloomFilter::new(
+                name,
+                capacity,
+                fpp,
+                crate::scalable_filter::ScaleFactor::SmallScaleSize,
+            ));
+            Response::OK
+        }
+        Request::Set(name, key) => match db.get_mut(&name) {
+            Some(sbf) => {
+                if let Err(e) = sbf.set(key.as_bytes()) {
+                    Response::Error(format!(
+                        "set \"{}\" into \"{}\" filter failed: {:?}",
+                        key, name, e
+                    ))
+                } else {
+                    Response::OK
+                }
+            }
+            None => Response::Error(format!("no scalable filter named: {}", name)),
+        },
+        Request::Check(name, key) => match db.get(&name) {
+            Some(sbf) => {
+                if sbf.check(key.as_bytes()) {
+                    Response::Yes
+                } else {
+                    Response::No
+                }
+            }
+            None => Response::Error(format!("no scalable filter named: {}", name)),
+        },
+    }
 }
 
-/// Run a tokio async server, accepts and handle new connections asynchronously.
+/// Run a tokio async server, init the shared filters database and accepts and handle new
+/// connections asynchronously.
 ///
-/// Arguments are listener, a bound `TcpListener` and pool a `BackendPool` with type
-/// `LoadBalancing`
+/// Requires single, already bound `TcpListener` argument
 pub async fn run(listener: TcpListener) -> AsyncResult<()> {
     let mut server = Server {
         listener,
         backoff: BACKOFF,
+        db: Arc::new(Mutex::new(HashMap::new())),
     };
     server.run().await?;
     Ok(())
