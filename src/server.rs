@@ -14,6 +14,8 @@ use tokio_util::codec::{Framed, LinesCodec};
 
 // Fixed size exponential backoff value
 const BACKOFF: u64 = 128;
+const DEFAULT_CAPACITY: &str = "50000";
+const DEFAULT_FPP: &str = "0.05";
 
 #[derive(Debug, Clone)]
 struct ParserError {
@@ -56,25 +58,23 @@ impl Request {
                     .map(|s| s.to_string())?;
                 let capacity = token
                     .next()
-                    .ok_or(ParserError {
-                        message: "missing capacity".into(),
-                    })
+                    .or(Some(DEFAULT_CAPACITY))
                     .map(|s| {
                         s.parse::<usize>().map_err(|_| ParserError {
                             message: "capacity must be an i64 value".into(),
                         })
-                    })?;
+                    })
+                    .unwrap()?;
                 let fpp = token
                     .next()
-                    .ok_or(ParserError {
-                        message: "missing false-positive probability".into(),
-                    })
+                    .or(Some(DEFAULT_FPP))
                     .map(|s| {
                         s.parse::<f64>().map_err(|_| ParserError {
                             message: "false-positive probability must be a f64 value".into(),
                         })
-                    })?;
-                Ok(Request::Create(name, capacity?, fpp?))
+                    })
+                    .unwrap()?;
+                Ok(Request::Create(name, capacity, fpp))
             }
             Some(c) if c == "set" => {
                 let name = token
@@ -312,16 +312,13 @@ fn handle_request(line: &str, db: &FilterDb) -> Response {
         },
         Request::Info(name) => match db.get(&name) {
             Some(sbf) => {
-                let (sec, nsec) = (
-                    sbf.creation_time().timestamp(),
-                    sbf.creation_time().timestamp_nanos(),
-                );
+                let sec = sbf.creation_time().timestamp();
                 Response::Info(
                     name,
                     sbf.capacity(),
                     sbf.size(),
                     format!("{}", sbf.byte_space()),
-                    DateTime::<Utc>::from_utc(NaiveDateTime::from_timestamp(sec, nsec as u32), Utc)
+                    DateTime::<Utc>::from_utc(NaiveDateTime::from_timestamp(sec, 0), Utc)
                         .to_rfc3339(),
                 )
             }
