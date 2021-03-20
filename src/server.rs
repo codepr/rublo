@@ -33,9 +33,9 @@ enum Request {
 }
 
 enum Response {
-    OK,
-    Yes,
-    No,
+    Done,
+    True,
+    False,
     Error(String),
 }
 
@@ -116,10 +116,10 @@ impl Request {
 impl Response {
     fn serialize(&self) -> String {
         match &*self {
-            Response::OK => format!("OK"),
-            Response::Yes => format!("YES"),
-            Response::No => format!("NO"),
-            Response::Error(message) => format!("<ERR>: {}", message),
+            Response::Done => format!("Done"),
+            Response::True => format!("True"),
+            Response::False => format!("False"),
+            Response::Error(message) => format!("Error: {}", message),
         }
     }
 }
@@ -259,7 +259,7 @@ fn handle_request(line: &str, db: &FilterDb) -> Response {
                 fpp,
                 crate::scalable_filter::ScaleFactor::SmallScaleSize,
             ));
-            Response::OK
+            Response::Done
         }
         Request::Set(name, key) => match db.get_mut(&name) {
             Some(sbf) => {
@@ -269,7 +269,7 @@ fn handle_request(line: &str, db: &FilterDb) -> Response {
                         key, name, e
                     ))
                 } else {
-                    Response::OK
+                    Response::Done
                 }
             }
             None => Response::Error(format!("no scalable filter named: {}", name)),
@@ -277,9 +277,9 @@ fn handle_request(line: &str, db: &FilterDb) -> Response {
         Request::Check(name, key) => match db.get(&name) {
             Some(sbf) => {
                 if sbf.check(key.as_bytes()) {
-                    Response::Yes
+                    Response::True
                 } else {
-                    Response::No
+                    Response::False
                 }
             }
             None => Response::Error(format!("no scalable filter named: {}", name)),
