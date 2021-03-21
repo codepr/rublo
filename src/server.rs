@@ -1,4 +1,5 @@
-use crate::scalable_filter::ScalableBloomFilter;
+// use crate::scalable_filter::ScalableBloomFilter;
+use crate::filter::{ScalableBloomFilter, ScaleFactor};
 use crate::AsyncResult;
 use chrono::{DateTime, NaiveDateTime, Utc};
 use futures::SinkExt;
@@ -283,7 +284,7 @@ fn handle_request(line: &str, db: &FilterDb) -> Response {
                 name,
                 capacity,
                 fpp,
-                crate::scalable_filter::ScaleFactor::SmallScaleSize,
+                ScaleFactor::SmallScaleSize,
             ));
             Response::Done
         }

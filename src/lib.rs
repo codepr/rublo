@@ -1,5 +1,4 @@
 mod filter;
-mod scalable_filter;
 pub mod server;
 
 use serde::Deserialize;
@@ -10,8 +9,8 @@ pub type AsyncResult<T> = std::result::Result<T, Box<dyn std::error::Error + Sen
 #[derive(Debug, PartialEq, Deserialize)]
 pub struct Config {
     listen_on: String,
-    #[serde(default = "scalable_filter::ScaleFactor::small_scale_size")]
-    scale_factor: scalable_filter::ScaleFactor,
+    #[serde(default = "filter::ScaleFactor::small_scale_size")]
+    scale_factor: filter::ScaleFactor,
 }
 
 impl Config {
@@ -25,7 +24,7 @@ impl Config {
         &self.listen_on
     }
 
-    pub fn scale_factor(&self) -> &scalable_filter::ScaleFactor {
+    pub fn scale_factor(&self) -> &filter::ScaleFactor {
         &self.scale_factor
     }
 }
