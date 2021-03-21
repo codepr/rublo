@@ -241,6 +241,12 @@ impl ScalableBloomFilter {
         self.creation_time
     }
 
+    pub fn clear(&mut self) {
+        for filter in self.filters.iter_mut() {
+            filter.clear();
+        }
+    }
+
     pub fn set(&mut self, bytes: &[u8]) -> Result<bool, Box<dyn Error>> {
         if self.check(bytes) {
             return Ok(true);

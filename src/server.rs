@@ -34,6 +34,7 @@ enum Request {
     Check(String, String),
     Info(String),
     Drop(String),
+    Clear(String),
 }
 
 enum Response {
@@ -123,6 +124,15 @@ impl Request {
                     .map(|s| s.to_string())?;
                 Ok(Request::Drop(name))
             }
+            Some(c) if c == "clear" => {
+                let name = token
+                    .next()
+                    .ok_or(ParserError {
+                        message: "missing filter name".into(),
+                    })
+                    .map(|s| s.to_string())?;
+                Ok(Request::Clear(name))
+            }
             Some(_) => Err(ParserError {
                 message: "unknown command".into(),
             }),
@@ -141,7 +151,7 @@ impl Response {
             Response::True => "True".into(),
             Response::False => "False".into(),
             Response::Info(name, capacity, size, space, dt) => format!(
-                "{} capacity: {} size: {} space: {} creation: {}",
+                "{} capacity {} size {} space {} creation {}",
                 name, capacity, size, space, dt
             ),
             Response::Error(message) => format!("Error: {}", message),
@@ -160,6 +170,10 @@ mod tests {
             Request::Create("foo".into(), 5, 0.01)
         );
         assert_eq!(
+            Request::parse("create foo")?,
+            Request::Create("foo".into(), 50000, 0.05)
+        );
+        assert_eq!(
             Request::parse("check foo bar")?,
             Request::Check("foo".into(), "bar".into())
         );
@@ -167,6 +181,7 @@ mod tests {
             Request::parse("set foo bar")?,
             Request::Set("foo".into(), "bar".into())
         );
+        assert_eq!(Request::parse("drop foo")?, Request::Drop("foo".into()));
         let r = Request::parse("create foo bar 0.01").map_err(|e| e);
         assert!(r.is_err());
         Ok(())
@@ -325,6 +340,13 @@ fn handle_request(line: &str, db: &FilterDb) -> Response {
         },
         Request::Drop(name) => match db.remove(&name) {
             Some(_) => Response::Done,
+            None => Response::Error(format!("no scalable filter named {}", name)),
+        },
+        Request::Clear(name) => match db.get_mut(&name) {
+            Some(sbf) => {
+                sbf.clear();
+                Response::Done
+            }
             None => Response::Error(format!("no scalable filter named {}", name)),
         },
     }
