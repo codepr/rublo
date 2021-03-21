@@ -54,6 +54,14 @@ impl ScalableBloomFilter {
         self.filters.iter().fold(0, |acc, x| acc + x.byte_space())
     }
 
+    pub fn hits(&self) -> u64 {
+        self.filters.iter().fold(0, |acc, x| acc + x.hits())
+    }
+
+    pub fn miss(&self) -> u64 {
+        self.filters.iter().fold(0, |acc, x| acc + x.miss())
+    }
+
     pub fn creation_time(&self) -> DateTime<Utc> {
         self.creation_time
     }
@@ -79,8 +87,8 @@ impl ScalableBloomFilter {
         filter.set(bytes)
     }
 
-    pub fn check(&self, bytes: &[u8]) -> bool {
-        for f in self.filters.iter().rev() {
+    pub fn check(&mut self, bytes: &[u8]) -> bool {
+        for f in self.filters.iter_mut().rev() {
             if f.check(bytes) {
                 return true;
             }

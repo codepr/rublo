@@ -300,7 +300,7 @@ fn handle_request(line: &str, db: &FilterDb) -> Response {
             }
             None => Response::Error(format!("no scalable filter named {}", name)),
         },
-        Request::Check(name, key) => match db.get(&name) {
+        Request::Check(name, key) => match db.get_mut(&name) {
             Some(sbf) => {
                 if sbf.check(key.as_bytes()) {
                     Response::True

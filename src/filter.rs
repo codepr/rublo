@@ -10,6 +10,8 @@ pub struct BloomFilter {
     size: usize,
     bitmap: BitVec,
     hash_count: u32,
+    hits: u64,
+    miss: u64,
 }
 
 #[derive(Debug)]
@@ -45,6 +47,8 @@ impl BloomFilter {
             size: 0,
             bitmap: bitvec![0; bitmap_size],
             hash_count: hash_count,
+            hits: 0,
+            miss: 0,
         }
     }
 
@@ -62,6 +66,14 @@ impl BloomFilter {
 
     pub fn byte_space(&self) -> usize {
         self.capacity() / 8
+    }
+
+    pub fn hits(&self) -> u64 {
+        self.hits
+    }
+
+    pub fn miss(&self) -> u64 {
+        self.miss
     }
 
     pub fn set(&mut self, bytes: &[u8]) -> Result<bool, Box<dyn Error>> {
@@ -82,13 +94,15 @@ impl BloomFilter {
         Ok(!allbits)
     }
 
-    pub fn check(&self, bytes: &[u8]) -> bool {
+    pub fn check(&mut self, bytes: &[u8]) -> bool {
         for i in 0..self.hash_count {
             let hash = (Hash32::hash_with_seed(bytes, i) as usize) % self.capacity;
             if self.bitmap[hash] == false {
+                self.miss += 1;
                 return false;
             }
         }
+        self.hits += 1;
         return true;
     }
 
