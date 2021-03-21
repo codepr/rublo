@@ -1,4 +1,3 @@
-// use crate::scalable_filter::ScalableBloomFilter;
 use crate::filter::{ScalableBloomFilter, ScaleFactor};
 use crate::AsyncResult;
 use chrono::{DateTime, NaiveDateTime, Utc};
@@ -7,7 +6,6 @@ use std::collections::HashMap;
 use std::fmt;
 use std::result::Result;
 use std::sync::{Arc, Mutex};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::time::{sleep, Duration};
 use tokio_stream::StreamExt;
