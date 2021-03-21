@@ -448,6 +448,7 @@ dependencies = [
  "chrono",
  "fasthash",
  "futures",
+ "log",
  "serde",
  "serde_yaml",
  "tokio",
