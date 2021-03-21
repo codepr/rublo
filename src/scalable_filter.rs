@@ -1,14 +1,27 @@
 use crate::filter::BloomFilter;
 use chrono::{DateTime, Utc};
+use serde::Deserialize;
 use std::error::Error;
 use std::result::Result;
 
 const FALSE_POSITIVE_PROBABILITY_RATIO: f64 = 0.9;
 
-#[derive(Copy, Clone)]
+#[derive(Debug, Copy, Clone, Deserialize, PartialEq)]
 pub enum ScaleFactor {
+    #[serde(rename(deserialize = "small"))]
     SmallScaleSize = 2,
+    #[serde(rename(deserialize = "large"))]
     LargeScaleSize = 4,
+}
+
+impl ScaleFactor {
+    pub fn small_scale_size() -> Self {
+        ScaleFactor::SmallScaleSize
+    }
+
+    pub fn large_scale_size() -> Self {
+        ScaleFactor::LargeScaleSize
+    }
 }
 
 pub struct ScalableBloomFilter {

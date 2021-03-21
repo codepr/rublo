@@ -308,7 +308,7 @@ fn handle_request(line: &str, db: &FilterDb) -> Response {
                     Response::False
                 }
             }
-            None => Response::Error(format!("no scalable filter named: {}", name)),
+            None => Response::Error(format!("no scalable filter named {}", name)),
         },
         Request::Info(name) => match db.get(&name) {
             Some(sbf) => {
@@ -322,7 +322,7 @@ fn handle_request(line: &str, db: &FilterDb) -> Response {
                         .to_rfc3339(),
                 )
             }
-            None => Response::Error(format!("no scalable filter named: {}", name)),
+            None => Response::Error(format!("no scalable filter named {}", name)),
         },
         Request::Drop(name) => match db.remove(&name) {
             Some(_) => Response::Done,

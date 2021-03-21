@@ -56,6 +56,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "dtoa"
+version = "0.4.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "88d7ed2934d741c6b37e33e3832298e8850b53fd2d2bea03873375596c7cea4e"
+
+[[package]]
 name = "fasthash"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -211,6 +217,12 @@ name = "libc"
 version = "0.2.88"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "03b07a082330a35e43f63177cc01689da34fbffa0105e1246cf0311472cac73a"
+
+[[package]]
+name = "linked-hash-map"
+version = "0.5.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7fb9b38af92608140b86b693604b9ffcc5824240a484d1ecd4795bacb2fe88f3"
 
 [[package]]
 name = "lock_api"
@@ -430,6 +442,8 @@ dependencies = [
  "chrono",
  "fasthash",
  "futures",
+ "serde",
+ "serde_yaml",
  "tokio",
  "tokio-stream",
  "tokio-util",
@@ -446,6 +460,38 @@ name = "seahash"
 version = "3.0.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "58f57ca1d128a43733fd71d583e837b1f22239a37ebea09cde11d8d9a9080f47"
+
+[[package]]
+name = "serde"
+version = "1.0.124"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bd761ff957cb2a45fbb9ab3da6512de9de55872866160b23c25f1a841e99d29f"
+dependencies = [
+ "serde_derive",
+]
+
+[[package]]
+name = "serde_derive"
+version = "1.0.124"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1800f7693e94e186f5e25a28291ae1570da908aff7d97a095dec1e56ff99069b"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
+name = "serde_yaml"
+version = "0.8.17"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "15654ed4ab61726bf918a39cb8d98a2e2995b002387807fa6ba58fdf7f59bb23"
+dependencies = [
+ "dtoa",
+ "linked-hash-map",
+ "serde",
+ "yaml-rust",
+]
 
 [[package]]
 name = "signal-hook-registry"
@@ -612,4 +658,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e0eeda34baec49c4f1eb2c04d59b761582fd6330010f9330ca696ca1a355dfcd"
 dependencies = [
  "rand",
+]
+
+[[package]]
+name = "yaml-rust"
+version = "0.4.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "56c1936c4cc7a1c9ab21a1ebb602eb942ba868cbd44a99cb7cdc5892335e1c85"
+dependencies = [
+ "linked-hash-map",
 ]
