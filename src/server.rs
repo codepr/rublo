@@ -35,13 +35,14 @@ enum Request {
     Info(String),
     Drop(String),
     Clear(String),
+    Persist(String),
 }
 
 enum Response {
     Done,
     True,
     False,
-    Info(String, usize, usize, String, String),
+    Info(String, usize, usize, String, u32, String),
     Error(String),
 }
 
@@ -133,6 +134,15 @@ impl Request {
                     .map(|s| s.to_string())?;
                 Ok(Request::Clear(name))
             }
+            Some(c) if c == "persist" => {
+                let name = token
+                    .next()
+                    .ok_or(ParserError {
+                        message: "missing filter name".into(),
+                    })
+                    .map(|s| s.to_string())?;
+                Ok(Request::Persist(name))
+            }
             Some(_) => Err(ParserError {
                 message: "unknown command".into(),
             }),
@@ -150,9 +160,9 @@ impl Response {
             Response::Done => "Done".into(),
             Response::True => "True".into(),
             Response::False => "False".into(),
-            Response::Info(name, capacity, size, space, dt) => format!(
-                "{} capacity {} size {} space {} creation {}",
-                name, capacity, size, space, dt
+            Response::Info(name, capacity, size, space, filters, dt) => format!(
+                "{} capacity {} size {} space {} filters {} creation {}",
+                name, capacity, size, space, filters, dt
             ),
             Response::Error(message) => format!("Error: {}", message),
         }
@@ -332,6 +342,7 @@ fn handle_request(line: &str, db: &FilterDb) -> Response {
                     sbf.capacity(),
                     sbf.size(),
                     format!("{}", sbf.byte_space()),
+                    sbf.filter_count() as u32,
                     DateTime::<Utc>::from_utc(NaiveDateTime::from_timestamp(sec, 0), Utc)
                         .to_rfc3339(),
                 )
@@ -345,6 +356,13 @@ fn handle_request(line: &str, db: &FilterDb) -> Response {
         Request::Clear(name) => match db.get_mut(&name) {
             Some(sbf) => {
                 sbf.clear();
+                Response::Done
+            }
+            None => Response::Error(format!("no scalable filter named {}", name)),
+        },
+        Request::Persist(name) => match db.get(&name) {
+            Some(sbf) => {
+                sbf.to_file();
                 Response::Done
             }
             None => Response::Error(format!("no scalable filter named {}", name)),

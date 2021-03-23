@@ -1,10 +1,15 @@
+use crate::AsyncResult;
 use bitvec::prelude::*;
 use chrono::{DateTime, Utc};
 use fasthash::{murmur3::Hash32, FastHash};
+use serde::ser::{Serialize, SerializeStruct, Serializer};
 use serde::Deserialize;
 use std::error::Error;
 use std::f64;
 use std::fmt;
+use std::fs::File;
+use std::io::prelude::*;
+use std::mem::size_of;
 use std::result::Result;
 
 struct BloomFilter {
@@ -26,6 +31,26 @@ impl fmt::Display for BloomFilterError {
 }
 
 impl Error for BloomFilterError {}
+
+impl Serialize for BloomFilter {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let len = size_of::<usize>() * 2
+            + size_of::<u32>()
+            + size_of::<u64>() * 2
+            + self.bitmap.len() / 8;
+        let mut state = serializer.serialize_struct("BloomFilter", len)?;
+        state.serialize_field("capacity", &self.capacity);
+        state.serialize_field("size", &self.size);
+        state.serialize_field("hash_count", &self.hash_count);
+        state.serialize_field("hits", &self.hits);
+        state.serialize_field("miss", &self.miss);
+        state.serialize_field("bitmap", &(self.bitmap.len() / 8));
+        state.end()
+    }
+}
 
 impl BloomFilter {
     /// Create a new BloomFilter, a probabilistic space-efficient data structure which is
@@ -111,6 +136,13 @@ impl BloomFilter {
     pub fn clear(&mut self) {
         self.bitmap.clear();
         self.size = 0;
+    }
+
+    pub fn to_file(&self, filename: &str) -> Result<(), Box<dyn Error>> {
+        let mut file = File::create(filename)?;
+        let serialized = bincode::serialize(&self)?;
+        file.write_all(&serialized)?;
+        Ok(())
     }
 
     fn get_bitmap_size(items_count: usize, fpp: f64) -> usize {
@@ -275,6 +307,11 @@ impl ScalableBloomFilter {
             }
         }
         return false;
+    }
+
+    pub fn to_file(&self) {
+        let f = self.filters.first().unwrap();
+        f.to_file(&self.name);
     }
 
     fn add_filter(&mut self, capacity: usize, fpp: f64) {
