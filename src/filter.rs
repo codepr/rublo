@@ -2,8 +2,10 @@ use crate::AsyncResult;
 use bitvec::prelude::*;
 use chrono::{DateTime, Utc};
 use fasthash::{murmur3::Hash32, FastHash};
+use serde as serd;
+use serde::de::{self, Deserialize, Deserializer, MapAccess, SeqAccess, Visitor};
 use serde::ser::{Serialize, SerializeStruct, Serializer};
-use serde::Deserialize;
+// use serde::Deserialize as SerdeDeserialize;
 use std::error::Error;
 use std::f64;
 use std::fmt;
@@ -44,11 +46,159 @@ impl Serialize for BloomFilter {
         let mut state = serializer.serialize_struct("BloomFilter", len)?;
         state.serialize_field("capacity", &self.capacity);
         state.serialize_field("size", &self.size);
-        state.serialize_field("hash_count", &self.hash_count);
+        state.serialize_field("hashcount", &self.hash_count);
         state.serialize_field("hits", &self.hits);
         state.serialize_field("miss", &self.miss);
-        state.serialize_field("bitmap", &(self.bitmap.len() / 8));
+        state.serialize_field("bitmap", &self.bitmap);
         state.end()
+    }
+}
+
+impl<'de> Deserialize<'de> for BloomFilter {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        enum Field {
+            Capacity,
+            Size,
+            Bitmap,
+            HashCount,
+            Hits,
+            Miss,
+        }
+
+        impl<'de> Deserialize<'de> for Field {
+            fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+            where
+                D: Deserializer<'de>,
+            {
+                struct FieldVisitor;
+
+                impl<'de> Visitor<'de> for FieldVisitor {
+                    type Value = Field;
+                    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                        formatter
+                            .write_str("`capacity`, `size`, `bitmap`, `hashcount`, `hits`, `miss`")
+                    }
+                    fn visit_str<E>(self, value: &str) -> Result<Field, E>
+                    where
+                        E: de::Error,
+                    {
+                        match value {
+                            "capacity" => Ok(Field::Capacity),
+                            "size" => Ok(Field::Size),
+                            "bitmap" => Ok(Field::Bitmap),
+                            "hashcount" => Ok(Field::HashCount),
+                            "hits" => Ok(Field::Hits),
+                            "miss" => Ok(Field::Miss),
+                            _ => Err(de::Error::unknown_field(value, FIELDS)),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(FieldVisitor)
+            }
+        }
+
+        struct BloomFilterVisitor;
+        impl<'de> Visitor<'de> for BloomFilterVisitor {
+            type Value = BloomFilter;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("struct BloomFilter")
+            }
+
+            fn visit_seq<V>(self, mut seq: V) -> Result<BloomFilter, V::Error>
+            where
+                V: SeqAccess<'de>,
+            {
+                let capacity = seq
+                    .next_element()?
+                    .ok_or_else(|| de::Error::invalid_length(0, &self))?;
+                let size = seq
+                    .next_element()?
+                    .ok_or_else(|| de::Error::invalid_length(0, &self))?;
+                let bitmap = seq
+                    .next_element()?
+                    .ok_or_else(|| de::Error::invalid_length(0, &self))?;
+                let hashcount = seq
+                    .next_element()?
+                    .ok_or_else(|| de::Error::invalid_length(0, &self))?;
+                let hits = seq
+                    .next_element()?
+                    .ok_or_else(|| de::Error::invalid_length(0, &self))?;
+                let miss = seq
+                    .next_element()?
+                    .ok_or_else(|| de::Error::invalid_length(0, &self))?;
+                Ok(BloomFilter::from_existing(
+                    capacity, size, bitmap, hashcount, hits, miss,
+                ))
+            }
+
+            fn visit_map<V>(self, mut map: V) -> Result<BloomFilter, V::Error>
+            where
+                V: MapAccess<'de>,
+            {
+                let mut capacity = None;
+                let mut size = None;
+                let mut bitmap = None;
+                let mut hashcount = None;
+                let mut hits = None;
+                let mut miss = None;
+                while let Some(key) = map.next_key()? {
+                    match key {
+                        Field::Capacity => {
+                            if capacity.is_some() {
+                                return Err(de::Error::duplicate_field("capacity"));
+                            }
+                            capacity = Some(map.next_value()?)
+                        }
+                        Field::Size => {
+                            if size.is_some() {
+                                return Err(de::Error::duplicate_field("size"));
+                            }
+                            size = Some(map.next_value()?)
+                        }
+                        Field::Bitmap => {
+                            if bitmap.is_some() {
+                                return Err(de::Error::duplicate_field("bitmap"));
+                            }
+                            bitmap = Some(map.next_value()?)
+                        }
+                        Field::HashCount => {
+                            if hashcount.is_some() {
+                                return Err(de::Error::duplicate_field("hashcount"));
+                            }
+                            hashcount = Some(map.next_value()?)
+                        }
+                        Field::Hits => {
+                            if hits.is_some() {
+                                return Err(de::Error::duplicate_field("hits"));
+                            }
+                            hits = Some(map.next_value()?)
+                        }
+                        Field::Miss => {
+                            if miss.is_some() {
+                                return Err(de::Error::duplicate_field("miss"));
+                            }
+                            miss = Some(map.next_value()?)
+                        }
+                    }
+                }
+                let capacity = capacity.ok_or_else(|| de::Error::missing_field("capacity"))?;
+                let size = size.ok_or_else(|| de::Error::missing_field("size"))?;
+                let bitmap = bitmap.ok_or_else(|| de::Error::missing_field("bitmap"))?;
+                let hashcount = hashcount.ok_or_else(|| de::Error::missing_field("hashcount"))?;
+                let hits = hits.ok_or_else(|| de::Error::missing_field("hits"))?;
+                let miss = miss.ok_or_else(|| de::Error::missing_field("miss"))?;
+                Ok(BloomFilter::from_existing(
+                    capacity, size, bitmap, hashcount, hits, miss,
+                ))
+            }
+        }
+        const FIELDS: &'static [&'static str] =
+            &["capacity", "size", "bitmap", "hashcount", "hits", "miss"];
+        deserializer.deserialize_struct("BloomFilter", FIELDS, BloomFilterVisitor)
     }
 }
 
@@ -72,10 +222,28 @@ impl BloomFilter {
         BloomFilter {
             capacity: bitmap_size,
             size: 0,
-            bitmap: bitvec![0; bitmap_size],
+            bitmap: bitvec![0u8; bitmap_size],
             hash_count: hash_count,
             hits: 0,
             miss: 0,
+        }
+    }
+
+    pub fn from_existing(
+        capacity: usize,
+        size: usize,
+        bitmap: BitVec,
+        hashcount: u32,
+        hits: u64,
+        miss: u64,
+    ) -> Self {
+        BloomFilter {
+            capacity,
+            size,
+            bitmap,
+            hash_count: hashcount,
+            hits,
+            miss,
         }
     }
 
@@ -200,7 +368,7 @@ mod filter_tests {
 
 const FALSE_POSITIVE_PROBABILITY_RATIO: f64 = 0.9;
 
-#[derive(Debug, Copy, Clone, Deserialize, PartialEq)]
+#[derive(Debug, Copy, Clone, serd::Deserialize, PartialEq)]
 pub enum ScaleFactor {
     #[serde(rename(deserialize = "small"))]
     SmallScaleSize = 2,
