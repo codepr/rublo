@@ -361,10 +361,10 @@ fn handle_request(line: &str, db: &FilterDb) -> Response {
             None => Response::Error(format!("no scalable filter named {}", name)),
         },
         Request::Persist(name) => match db.get(&name) {
-            Some(sbf) => {
-                sbf.to_file();
-                Response::Done
-            }
+            Some(sbf) => match sbf.to_file() {
+                Ok(()) => Response::Done,
+                Err(e) => Response::Error(format!("persist failed {}", e)),
+            },
             None => Response::Error(format!("no scalable filter named {}", name)),
         },
     }
