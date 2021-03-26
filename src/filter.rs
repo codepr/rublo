@@ -56,24 +56,6 @@ impl BloomFilter {
         }
     }
 
-    pub fn from_existing(
-        capacity: usize,
-        size: usize,
-        bitmap: BitVec,
-        hashcount: u32,
-        hits: u64,
-        miss: u64,
-    ) -> Self {
-        BloomFilter {
-            capacity,
-            size,
-            bitmap,
-            hash_count: hashcount,
-            hits,
-            miss,
-        }
-    }
-
     pub fn capacity(&self) -> usize {
         self.capacity
     }

@@ -2,6 +2,7 @@ use crate::filter::{ScalableBloomFilter, ScaleFactor};
 use crate::AsyncResult;
 use chrono::{DateTime, NaiveDateTime, Utc};
 use futures::SinkExt;
+use log::{error, info};
 use std::collections::HashMap;
 use std::fmt;
 use std::result::Result;
@@ -13,6 +14,7 @@ use tokio_util::codec::{Framed, LinesCodec};
 
 // Fixed size exponential backoff value
 const BACKOFF: u64 = 128;
+const DUMP_INTERVAL: u64 = 60;
 const DEFAULT_CAPACITY: &str = "50000";
 const DEFAULT_FPP: &str = "0.05";
 
@@ -227,11 +229,20 @@ impl Server {
     /// operating system has reached an internal limit for max number of
     /// sockets, accept will fail.
     pub async fn run(&mut self) -> AsyncResult<()> {
+        // Create a clone reference of the filters database to be used by the dump worker
+        let db = self.db.clone();
+        // Spawn a new task to dump every filter to disk
+        tokio::spawn(async move {
+            if let Err(e) = dump_to_disk(&db, DUMP_INTERVAL).await {
+                error!("Can't spawn `dump_to_disk` worker: {:?}", e);
+            }
+        });
         // Loop forever on new connections, accept them and pass the handling
         // to a worker.
         loop {
             // Accepts a new connection, obtaining a valid socket.
             let stream = self.accept().await?;
+            info!("New connection accepted");
             // Create a clone reference of the filters database to be used by this connection.
             let db = self.db.clone();
             // Spawn a new task to process the connection, moving the ownership of the cloned
@@ -256,6 +267,7 @@ impl Server {
                         }
                     }
                 }
+                info!("Connection closed by client");
             });
         }
     }
@@ -290,6 +302,23 @@ impl Server {
             // Double the back off
             backoff *= 2;
         }
+    }
+}
+
+/// Write to disk every scalable filter in the database every `interval` seconds, meant to run
+/// as a tokio task
+async fn dump_to_disk(db: &FilterDb, interval: u64) -> AsyncResult<()> {
+    loop {
+        // Sleep for a defined timeout
+        sleep(Duration::from_secs(interval)).await;
+        let db = db.lock().unwrap();
+        for (k, v) in db.iter() {
+            match v.to_file() {
+                Ok(()) => info!("{} filter dumped to disk", k),
+                Err(e) => error!("{} filter error: {:?}", k, e),
+            }
+        }
+        drop(db);
     }
 }
 
