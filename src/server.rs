@@ -409,6 +409,5 @@ pub async fn run(listener: TcpListener) -> AsyncResult<()> {
         backoff: BACKOFF,
         db: Arc::new(Mutex::new(HashMap::new())),
     };
-    server.run().await?;
-    Ok(())
+    server.run().await
 }
