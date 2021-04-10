@@ -3,10 +3,10 @@ use crate::AsyncResult;
 use chrono::{DateTime, NaiveDateTime, Utc};
 use futures::SinkExt;
 use log::{error, info};
-use std::collections::HashMap;
 use std::fmt;
 use std::result::Result;
 use std::sync::{Arc, Mutex};
+use std::{collections::HashMap, net::SocketAddr};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::time::{sleep, Duration};
 use tokio_stream::StreamExt;
@@ -280,8 +280,8 @@ impl Server {
         // to a worker.
         loop {
             // Accepts a new connection, obtaining a valid socket.
-            let stream = self.accept().await?;
-            info!("New connection accepted");
+            let (stream, peer) = self.accept().await?;
+            info!("connection from {}", peer.to_string());
             // Create a clone reference of the filters database to be used by this connection.
             let db = self.db.clone();
             // Spawn a new task to process the connection, moving the ownership of the cloned
@@ -306,7 +306,7 @@ impl Server {
                         }
                     }
                 }
-                info!("Connection closed by client");
+                info!("connection closed by client");
             });
         }
     }
@@ -318,7 +318,7 @@ impl Server {
     /// After the second failure, the task waits for 2 seconds. Each subsequent
     /// failure doubles the wait time. If accepting fails on the 6th try after
     /// waiting for 64 seconds, then this function returns with an error.
-    async fn accept(&mut self) -> AsyncResult<TcpStream> {
+    async fn accept(&mut self) -> AsyncResult<(TcpStream, SocketAddr)> {
         let mut backoff = 1;
 
         // Try to accept a few times
@@ -326,7 +326,7 @@ impl Server {
             // Perform the accept operation. If a socket is successfully
             // accepted, return it. Otherwise, save the error.
             match self.listener.accept().await {
-                Ok((socket, _)) => return Ok(socket),
+                Ok((socket, peer)) => return Ok((socket, peer)),
                 Err(err) => {
                     if backoff > self.backoff {
                         // Accept has failed too many times. Return the error.

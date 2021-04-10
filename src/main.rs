@@ -6,6 +6,6 @@ use tokio::net::TcpListener;
 async fn main() -> rublo::AsyncResult<()> {
     rublo::init_logging().expect("Can't enable logging");
     let listener = TcpListener::bind("127.0.0.1:4989".to_string()).await?;
-    info!("Listening on ::4989");
+    info!("listening on ::4989");
     server::run(listener).await
 }
