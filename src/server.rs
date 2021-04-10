@@ -31,13 +31,31 @@ impl fmt::Display for ParserError {
 
 #[derive(Debug, PartialEq)]
 enum Request {
-    Create(String, usize, f64),
-    Set(String, String),
-    Check(String, String),
-    Info(String),
-    Drop(String),
-    Clear(String),
-    Persist(String),
+    Create {
+        name: String,
+        capacity: usize,
+        fpp: f64,
+    },
+    Set {
+        name: String,
+        key: String,
+    },
+    Check {
+        name: String,
+        key: String,
+    },
+    Info {
+        name: String,
+    },
+    Drop {
+        name: String,
+    },
+    Clear {
+        name: String,
+    },
+    Persist {
+        name: String,
+    },
 }
 
 enum Response {
@@ -77,7 +95,11 @@ impl Request {
                         })
                     })
                     .unwrap()?;
-                Ok(Request::Create(name, capacity, fpp))
+                Ok(Request::Create {
+                    name,
+                    capacity,
+                    fpp,
+                })
             }
             Some(c) if c == "set" => {
                 let name = token
@@ -92,7 +114,7 @@ impl Request {
                         message: "missing key".into(),
                     })
                     .map(|s| s.to_string())?;
-                Ok(Request::Set(name, key))
+                Ok(Request::Set { name, key })
             }
             Some(c) if c == "check" => {
                 let name = token
@@ -107,7 +129,7 @@ impl Request {
                         message: "missing key".into(),
                     })
                     .map(|s| s.to_string())?;
-                Ok(Request::Check(name, key))
+                Ok(Request::Check { name, key })
             }
             Some(c) if c == "info" => {
                 let name = token
@@ -116,7 +138,7 @@ impl Request {
                         message: "missing filter name".into(),
                     })
                     .map(|s| s.to_string())?;
-                Ok(Request::Info(name))
+                Ok(Request::Info { name })
             }
             Some(c) if c == "drop" => {
                 let name = token
@@ -125,7 +147,7 @@ impl Request {
                         message: "missing filter name".into(),
                     })
                     .map(|s| s.to_string())?;
-                Ok(Request::Drop(name))
+                Ok(Request::Drop { name })
             }
             Some(c) if c == "clear" => {
                 let name = token
@@ -134,7 +156,7 @@ impl Request {
                         message: "missing filter name".into(),
                     })
                     .map(|s| s.to_string())?;
-                Ok(Request::Clear(name))
+                Ok(Request::Clear { name })
             }
             Some(c) if c == "persist" => {
                 let name = token
@@ -143,7 +165,7 @@ impl Request {
                         message: "missing filter name".into(),
                     })
                     .map(|s| s.to_string())?;
-                Ok(Request::Persist(name))
+                Ok(Request::Persist { name })
             }
             Some(_) => Err(ParserError {
                 message: "unknown command".into(),
@@ -179,21 +201,38 @@ mod tests {
     fn test_parse() -> Result<(), ParserError> {
         assert_eq!(
             Request::parse("create foo 5 0.01")?,
-            Request::Create("foo".into(), 5, 0.01)
+            Request::Create {
+                name: "foo".into(),
+                capacity: 5,
+                fpp: 0.01
+            }
         );
         assert_eq!(
             Request::parse("create foo")?,
-            Request::Create("foo".into(), 50000, 0.05)
+            Request::Create {
+                name: "foo".into(),
+                capacity: 50000,
+                fpp: 0.05
+            }
         );
         assert_eq!(
             Request::parse("check foo bar")?,
-            Request::Check("foo".into(), "bar".into())
+            Request::Check {
+                name: "foo".into(),
+                key: "bar".into()
+            }
         );
         assert_eq!(
             Request::parse("set foo bar")?,
-            Request::Set("foo".into(), "bar".into())
+            Request::Set {
+                name: "foo".into(),
+                key: "bar".into()
+            }
         );
-        assert_eq!(Request::parse("drop foo")?, Request::Drop("foo".into()));
+        assert_eq!(
+            Request::parse("drop foo")?,
+            Request::Drop { name: "foo".into() }
+        );
         let r = Request::parse("create foo bar 0.01").map_err(|e| e);
         assert!(r.is_err());
         Ok(())
@@ -331,7 +370,11 @@ fn handle_request(line: &str, db: &FilterDb) -> Response {
     };
     let mut db = db.lock().unwrap();
     match request {
-        Request::Create(name, capacity, fpp) => {
+        Request::Create {
+            name,
+            capacity,
+            fpp,
+        } => {
             db.entry(name.clone()).or_insert(ScalableBloomFilter::new(
                 name,
                 capacity,
@@ -340,7 +383,7 @@ fn handle_request(line: &str, db: &FilterDb) -> Response {
             ));
             Response::Done
         }
-        Request::Set(name, key) => match db.get_mut(&name) {
+        Request::Set { name, key } => match db.get_mut(&name) {
             Some(sbf) => {
                 if let Err(e) = sbf.set(key.as_bytes()) {
                     Response::Error(format!(
@@ -353,7 +396,7 @@ fn handle_request(line: &str, db: &FilterDb) -> Response {
             }
             None => Response::Error(format!("no scalable filter named {}", name)),
         },
-        Request::Check(name, key) => match db.get_mut(&name) {
+        Request::Check { name, key } => match db.get_mut(&name) {
             Some(sbf) => {
                 if sbf.check(key.as_bytes()) {
                     Response::True
@@ -363,7 +406,7 @@ fn handle_request(line: &str, db: &FilterDb) -> Response {
             }
             None => Response::Error(format!("no scalable filter named {}", name)),
         },
-        Request::Info(name) => match db.get(&name) {
+        Request::Info { name } => match db.get(&name) {
             Some(sbf) => {
                 let sec = sbf.creation_time().timestamp();
                 Response::Info(
@@ -378,18 +421,18 @@ fn handle_request(line: &str, db: &FilterDb) -> Response {
             }
             None => Response::Error(format!("no scalable filter named {}", name)),
         },
-        Request::Drop(name) => match db.remove(&name) {
+        Request::Drop { name } => match db.remove(&name) {
             Some(_) => Response::Done,
             None => Response::Error(format!("no scalable filter named {}", name)),
         },
-        Request::Clear(name) => match db.get_mut(&name) {
+        Request::Clear { name } => match db.get_mut(&name) {
             Some(sbf) => {
                 sbf.clear();
                 Response::Done
             }
             None => Response::Error(format!("no scalable filter named {}", name)),
         },
-        Request::Persist(name) => match db.get(&name) {
+        Request::Persist { name } => match db.get(&name) {
             Some(sbf) => match sbf.to_file() {
                 Ok(()) => Response::Done,
                 Err(e) => Response::Error(format!("persist failed {}", e)),
