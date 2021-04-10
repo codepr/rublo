@@ -202,6 +202,7 @@ pub struct ScalableBloomFilter {
     fpp: f64,
     scale_factor: ScaleFactor,
     creation_time: DateTime<Utc>,
+    last_access_time: DateTime<Utc>,
 }
 
 impl ScalableBloomFilter {
@@ -213,6 +214,7 @@ impl ScalableBloomFilter {
             fpp: fpp,
             scale_factor: scale_factor,
             creation_time: Utc::now(),
+            last_access_time: Utc::now(),
         }
     }
 
@@ -250,10 +252,23 @@ impl ScalableBloomFilter {
         self.creation_time
     }
 
+    pub fn last_access_time(&self) -> DateTime<Utc> {
+        self.last_access_time
+    }
+
+    pub fn hash_count(&self) -> u32 {
+        self.filters
+            .iter()
+            .map(|f| f.hash_count())
+            .max()
+            .unwrap_or(0)
+    }
+
     pub fn clear(&mut self) {
         for filter in self.filters.iter_mut() {
             filter.clear();
         }
+        self.last_access_time = Utc::now();
     }
 
     pub fn set(&mut self, bytes: &[u8]) -> Result<bool, Box<dyn Error>> {
@@ -273,6 +288,7 @@ impl ScalableBloomFilter {
                 self.fpp * FALSE_POSITIVE_PROBABILITY_RATIO,
             );
         }
+        self.last_access_time = Utc::now();
         let filter = self.filters.last_mut().unwrap();
         filter.set(bytes)
     }
@@ -283,6 +299,7 @@ impl ScalableBloomFilter {
                 return true;
             }
         }
+        self.last_access_time = Utc::now();
         return false;
     }
 

@@ -14,8 +14,11 @@ use tokio_util::codec::{Framed, LinesCodec};
 
 // Fixed size exponential backoff value
 const BACKOFF: u64 = 128;
+// Dump to disk seconds interval
 const DUMP_INTERVAL: u64 = 60;
+// Base capacity for each new filter, if not specified
 const DEFAULT_CAPACITY: &str = "50000";
+// Base false positive probability for each new filter, if not specified otherwise
 const DEFAULT_FPP: &str = "0.05";
 
 #[derive(Debug, Clone)]
@@ -29,6 +32,14 @@ impl fmt::Display for ParserError {
     }
 }
 
+/// Text protocol declaration, currently supports basic commands such as:
+/// - Create filter-name [capacity] [fpp]
+/// - Set filter-name key
+/// - Check filter-name key
+/// - Info filter-name
+/// - Drop filter-name
+/// - Clear filter-name
+/// - Persist filter-name
 #[derive(Debug, PartialEq)]
 enum Request {
     Create {
@@ -62,7 +73,18 @@ enum Response {
     Done,
     True,
     False,
-    Info(String, usize, usize, String, u32, String),
+    Info {
+        name: String,
+        capacity: usize,
+        size: usize,
+        space: String,
+        filters: u32,
+        hash_count: u32,
+        hits: u64,
+        miss: u64,
+        creation_time: String,
+        last_access_time: String,
+    },
     Error(String),
 }
 
@@ -184,9 +206,20 @@ impl Response {
             Response::Done => "Done".into(),
             Response::True => "True".into(),
             Response::False => "False".into(),
-            Response::Info(name, capacity, size, space, filters, dt) => format!(
-                "{} capacity {} size {} space {} filters {} creation {}",
-                name, capacity, size, space, filters, dt
+            Response::Info {
+                name,
+                capacity,
+                size,
+                space,
+                filters,
+                hash_count,
+                hits,
+                miss,
+                creation_time,
+                last_access_time,
+            } => format!(
+                "name: {}\ncapacity: {}\nsize: {}\nspace: {}\nfilters: {}\nhash functions: {}\nhits: {}\nmiss: {}\ncreation: {}\nlast access: {}",
+                name, capacity, size, space, filters, hash_count, hits, miss, creation_time, last_access_time
             ),
             Response::Error(message) => format!("Error: {}", message),
         }
@@ -409,15 +442,27 @@ fn handle_request(line: &str, db: &FilterDb) -> Response {
         Request::Info { name } => match db.get(&name) {
             Some(sbf) => {
                 let sec = sbf.creation_time().timestamp();
-                Response::Info(
+                let lat = sbf.last_access_time().timestamp();
+                Response::Info {
                     name,
-                    sbf.capacity(),
-                    sbf.size(),
-                    format!("{}", sbf.byte_space()),
-                    sbf.filter_count() as u32,
-                    DateTime::<Utc>::from_utc(NaiveDateTime::from_timestamp(sec, 0), Utc)
-                        .to_rfc3339(),
-                )
+                    capacity: sbf.capacity(),
+                    size: sbf.size(),
+                    space: format!("{}", sbf.byte_space()),
+                    filters: sbf.filter_count() as u32,
+                    hash_count: sbf.hash_count(),
+                    hits: sbf.hits(),
+                    miss: sbf.miss(),
+                    creation_time: DateTime::<Utc>::from_utc(
+                        NaiveDateTime::from_timestamp(sec, 0),
+                        Utc,
+                    )
+                    .to_rfc3339(),
+                    last_access_time: DateTime::<Utc>::from_utc(
+                        NaiveDateTime::from_timestamp(lat, 0),
+                        Utc,
+                    )
+                    .to_rfc3339(),
+                }
             }
             None => Response::Error(format!("no scalable filter named {}", name)),
         },
