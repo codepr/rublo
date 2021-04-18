@@ -317,8 +317,8 @@ impl ScalableBloomFilter {
         Ok(())
     }
 
-    pub async fn from_file(&self) -> AsyncResult<ScalableBloomFilter> {
-        let data = fs::read(format!("{}/{}.rlb", DEFAULT_DATA_DIR, &self.name)).await?;
+    pub async fn from_file(name: &str) -> AsyncResult<ScalableBloomFilter> {
+        let data = fs::read(name).await?;
         let filter = bincode::deserialize(&data[..])?;
         Ok(filter)
     }

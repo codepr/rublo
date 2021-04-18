@@ -4,10 +4,10 @@ use chrono::{DateTime, NaiveDateTime, Utc};
 use futures::SinkExt;
 use log::{error, info};
 use std::fmt;
-use std::fs;
 use std::result::Result;
 use std::sync::Arc;
 use std::{collections::HashMap, net::SocketAddr};
+use tokio::fs;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::Mutex;
 use tokio::time::{sleep, Duration};
@@ -292,6 +292,13 @@ struct Server {
 
 impl Server {
     pub async fn init(&mut self) -> AsyncResult<()> {
+        let mut db = self.db.lock().await;
+        let mut entries = fs::read_dir(DEFAULT_DATA_DIR).await?;
+        while let Some(entry) = entries.next_entry().await? {
+            if let Ok(path) = entry.path().into_os_string().into_string() {
+                db.insert(path.clone(), ScalableBloomFilter::from_file(&path).await?);
+            }
+        }
         Ok(())
     }
 
@@ -498,12 +505,12 @@ async fn handle_request(line: &str, db: &FilterDb) -> Response {
 ///
 /// Requires single, already bound `TcpListener` argument
 pub async fn run(listener: TcpListener) -> AsyncResult<()> {
-    fs::create_dir_all(DEFAULT_DATA_DIR)?;
+    fs::create_dir_all(DEFAULT_DATA_DIR).await?;
     let mut server = Server {
         listener,
         backoff: BACKOFF,
         db: Arc::new(Mutex::new(HashMap::new())),
     };
-    server.init().await;
+    server.init().await?;
     server.run().await
 }
