@@ -1,3 +1,4 @@
+use crate::AsyncResult;
 use bitvec::prelude::*;
 use chrono::{DateTime, Utc};
 use fasthash::{murmur3::Hash32, FastHash};
@@ -5,8 +6,11 @@ use serde::{Deserialize, Serialize};
 use std::error::Error;
 use std::f64;
 use std::fmt;
-use std::fs;
 use std::result::Result;
+use tokio::fs;
+
+// Data directory used to store filters on disk
+pub const DEFAULT_DATA_DIR: &str = "rublo";
 
 #[derive(Serialize, Deserialize)]
 struct BloomFilter {
@@ -115,9 +119,9 @@ impl BloomFilter {
         self.size = 0;
     }
 
-    pub fn to_file(&self, filename: &str) -> Result<(), Box<dyn Error>> {
+    pub async fn to_file(&self, filename: &str) -> AsyncResult<()> {
         let serialized = bincode::serialize(self)?;
-        fs::write(filename, &serialized)?;
+        fs::write(filename, &serialized).await?;
         Ok(())
     }
 
@@ -303,14 +307,18 @@ impl ScalableBloomFilter {
         return false;
     }
 
-    pub fn to_file(&self) -> Result<(), Box<dyn Error>> {
+    pub async fn to_file(&self) -> AsyncResult<()> {
         let serialized = bincode::serialize(self)?;
-        fs::write(&self.name, &serialized)?;
+        fs::write(
+            format!("{}/{}.rbl", DEFAULT_DATA_DIR, &self.name),
+            &serialized,
+        )
+        .await?;
         Ok(())
     }
 
-    pub fn from_file(&self) -> Result<ScalableBloomFilter, Box<dyn Error>> {
-        let data = fs::read(&self.name)?;
+    pub async fn from_file(&self) -> AsyncResult<ScalableBloomFilter> {
+        let data = fs::read(format!("{}/{}.rlb", DEFAULT_DATA_DIR, &self.name)).await?;
         let filter = bincode::deserialize(&data[..])?;
         Ok(filter)
     }

@@ -1,13 +1,15 @@
-use crate::filter::{ScalableBloomFilter, ScaleFactor};
+use crate::filter::{ScalableBloomFilter, ScaleFactor, DEFAULT_DATA_DIR};
 use crate::AsyncResult;
 use chrono::{DateTime, NaiveDateTime, Utc};
 use futures::SinkExt;
 use log::{error, info};
 use std::fmt;
+use std::fs;
 use std::result::Result;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::{collections::HashMap, net::SocketAddr};
 use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::Mutex;
 use tokio::time::{sleep, Duration};
 use tokio_stream::StreamExt;
 use tokio_util::codec::{Framed, LinesCodec};
@@ -289,6 +291,10 @@ struct Server {
 }
 
 impl Server {
+    pub async fn init(&mut self) -> AsyncResult<()> {
+        Ok(())
+    }
+
     /// Create a new Server and run.
     ///
     /// Listen for inbound connections. For each inbound connection, spawn a
@@ -328,7 +334,7 @@ impl Server {
                 while let Some(result) = lines.next().await {
                     match result {
                         Ok(line) => {
-                            let response = handle_request(&line, &db);
+                            let response = handle_request(&line, &db).await;
                             let response = response.serialize();
                             if let Err(e) = lines.send(response.as_str()).await {
                                 println!("error sending response: {:?}", e);
@@ -383,9 +389,9 @@ async fn dump_to_disk(db: &FilterDb, interval: u64) -> AsyncResult<()> {
     loop {
         // Sleep for a defined timeout
         sleep(Duration::from_secs(interval)).await;
-        let db = db.lock().unwrap();
+        let db = db.lock().await;
         for (k, v) in db.iter() {
-            match v.to_file() {
+            match v.to_file().await {
                 Ok(()) => info!("{} filter dumped to disk", k),
                 Err(e) => error!("{} filter error: {:?}", k, e),
             }
@@ -396,12 +402,12 @@ async fn dump_to_disk(db: &FilterDb, interval: u64) -> AsyncResult<()> {
 
 /// Parse a line into a `Request` and return a `Response` based on the outcome of the
 /// operation requested.
-fn handle_request(line: &str, db: &FilterDb) -> Response {
+async fn handle_request(line: &str, db: &FilterDb) -> Response {
     let request = match Request::parse(&line) {
         Ok(req) => req,
         Err(e) => return Response::Error(e.message),
     };
-    let mut db = db.lock().unwrap();
+    let mut db = db.lock().await;
     match request {
         Request::Create {
             name,
@@ -478,7 +484,7 @@ fn handle_request(line: &str, db: &FilterDb) -> Response {
             None => Response::Error(format!("no scalable filter named {}", name)),
         },
         Request::Persist { name } => match db.get(&name) {
-            Some(sbf) => match sbf.to_file() {
+            Some(sbf) => match sbf.to_file().await {
                 Ok(()) => Response::Done,
                 Err(e) => Response::Error(format!("persist failed {}", e)),
             },
@@ -492,10 +498,12 @@ fn handle_request(line: &str, db: &FilterDb) -> Response {
 ///
 /// Requires single, already bound `TcpListener` argument
 pub async fn run(listener: TcpListener) -> AsyncResult<()> {
+    fs::create_dir_all(DEFAULT_DATA_DIR)?;
     let mut server = Server {
         listener,
         backoff: BACKOFF,
         db: Arc::new(Mutex::new(HashMap::new())),
     };
+    server.init().await;
     server.run().await
 }
