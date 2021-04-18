@@ -296,7 +296,9 @@ impl Server {
         let mut entries = fs::read_dir(DEFAULT_DATA_DIR).await?;
         while let Some(entry) = entries.next_entry().await? {
             if let Ok(path) = entry.path().into_os_string().into_string() {
-                db.insert(path.clone(), ScalableBloomFilter::from_file(&path).await?);
+                info!("found persistent filter named {}", path);
+                let filter = ScalableBloomFilter::from_file(&path).await?;
+                db.insert(filter.name().clone(), filter);
             }
         }
         Ok(())

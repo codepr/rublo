@@ -222,6 +222,10 @@ impl ScalableBloomFilter {
         }
     }
 
+    pub fn name(&self) -> &String {
+        &self.name
+    }
+
     pub fn filter_count(&self) -> usize {
         self.filters.len()
     }
