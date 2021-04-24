@@ -18,6 +18,10 @@ use tokio_util::codec::{Framed, LinesCodec};
 const BACKOFF: u64 = 128;
 // Dump to disk seconds interval
 const DUMP_INTERVAL: u64 = 60;
+// Interval to check for cold filters
+const DUMP_COLD_INTERVAL: u64 = 5;
+// Default timeout to declare a filter cold in seconds
+const COLD_FILTER_TIMEOUT: i64 = 3600;
 // Base capacity for each new filter, if not specified
 const DEFAULT_CAPACITY: &str = "50000";
 // Base false positive probability for each new filter, if not specified otherwise
@@ -291,6 +295,13 @@ struct Server {
 }
 
 impl Server {
+    /// Init the shared database object by reading the disk at the default path for filters stored
+    /// and put them into memory.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err` if anything wrong happens while reading from disk and deserializing memory
+    /// maps into memory.
     pub async fn init(&mut self) -> AsyncResult<()> {
         let mut db = self.db.lock().await;
         let mut entries = fs::read_dir(DEFAULT_DATA_DIR).await?;
@@ -322,6 +333,13 @@ impl Server {
         tokio::spawn(async move {
             if let Err(e) = dump_to_disk(&db, DUMP_INTERVAL).await {
                 error!("Can't spawn `dump_to_disk` worker: {:?}", e);
+            }
+        });
+        let db = self.db.clone();
+        // And another one to keep only warm filters in memory
+        tokio::spawn(async move {
+            if let Err(e) = dump_cold_filters(&db, DUMP_COLD_INTERVAL).await {
+                error!("Can't spawn `dump_cold_filters` worker: {:?}", e);
             }
         });
         // Loop forever on new connections, accept them and pass the handling
@@ -405,6 +423,26 @@ async fn dump_to_disk(db: &FilterDb, interval: u64) -> AsyncResult<()> {
                 Err(e) => error!("{} filter error: {:?}", k, e),
             }
         }
+        drop(db);
+    }
+}
+
+async fn dump_cold_filters(db: &FilterDb, interval: u64) -> AsyncResult<()> {
+    loop {
+        // Sleep for a defined timeout
+        sleep(Duration::from_secs(interval)).await;
+        let mut db = db.lock().await;
+        for (k, v) in db.iter() {
+            if Utc::now().timestamp() - &v.last_access_time().timestamp() > COLD_FILTER_TIMEOUT {
+                match v.to_file().await {
+                    Ok(()) => info!("{} filter dumped to disk", k),
+                    Err(e) => error!("{} filter error: {:?}", k, e),
+                }
+            }
+        }
+        db.retain(|_, v| {
+            Utc::now().timestamp() - v.last_access_time().timestamp() < COLD_FILTER_TIMEOUT
+        });
         drop(db);
     }
 }
