@@ -4,9 +4,10 @@ use chrono::{DateTime, NaiveDateTime, Utc};
 use futures::SinkExt;
 use log::{error, info};
 use std::fmt;
+use std::path::Path;
 use std::result::Result;
 use std::sync::Arc;
-use std::{collections::HashMap, net::SocketAddr};
+use std::{collections::HashMap, collections::HashSet, net::SocketAddr};
 use tokio::fs;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::Mutex;
@@ -278,11 +279,16 @@ mod tests {
     }
 }
 
+struct FilterDatabase {
+    pub filters: HashMap<String, ScalableBloomFilter>,
+    pub cold_filters: HashSet<String>,
+}
+
 /// Shared state between multiple connections, the filter manager to track and
 /// update multiple scalable filters.
 ///
 /// Being shared it's wrapped as an atomic counter reference (Arc) guarded by a mutex.
-type FilterDb = Arc<Mutex<HashMap<String, ScalableBloomFilter>>>;
+type FilterDb = Arc<Mutex<FilterDatabase>>;
 
 /// Server listener state. Created in the `run` call. It includes a `run` method
 /// which performs the TCP listening and initialization of per-connection state.
@@ -309,7 +315,7 @@ impl Server {
             if let Ok(path) = entry.path().into_os_string().into_string() {
                 info!("found persistent filter named {}", path);
                 let filter = ScalableBloomFilter::from_file(&path).await?;
-                db.insert(filter.name().clone(), filter);
+                db.filters.insert(filter.name().clone(), filter);
             }
         }
         Ok(())
@@ -417,33 +423,38 @@ async fn dump_to_disk(db: &FilterDb, interval: u64) -> AsyncResult<()> {
         // Sleep for a defined timeout
         sleep(Duration::from_secs(interval)).await;
         let db = db.lock().await;
-        for (k, v) in db.iter() {
+        for (k, v) in db.filters.iter() {
             match v.to_file().await {
                 Ok(()) => info!("{} filter dumped to disk", k),
-                Err(e) => error!("{} filter error: {:?}", k, e),
+                Err(e) => error!("{} filter dump error: {:?}", k, e),
             }
         }
         drop(db);
     }
 }
 
+/// Write to disk every scalable filter in the database that is considered cold. Cold filters are
+/// those that are not accessed since a given time.
 async fn dump_cold_filters(db: &FilterDb, interval: u64) -> AsyncResult<()> {
     loop {
-        // Sleep for a defined timeout
-        sleep(Duration::from_secs(interval)).await;
-        let mut db = db.lock().await;
-        for (k, v) in db.iter() {
+        let mut db_ref = db.lock().await;
+        for (k, v) in db_ref.filters.iter() {
             if Utc::now().timestamp() - &v.last_access_time().timestamp() > COLD_FILTER_TIMEOUT {
                 match v.to_file().await {
-                    Ok(()) => info!("{} filter dumped to disk", k),
-                    Err(e) => error!("{} filter error: {:?}", k, e),
+                    Ok(()) => {
+                        db.lock().await.cold_filters.insert(v.name().clone());
+                        info!("{} filter dumped to disk as deemed cold", k)
+                    }
+                    Err(e) => error!("{} filter dump error: {:?}", k, e),
                 }
             }
         }
-        db.retain(|_, v| {
+        db_ref.filters.retain(|_, v| {
             Utc::now().timestamp() - v.last_access_time().timestamp() < COLD_FILTER_TIMEOUT
         });
-        drop(db);
+        drop(db_ref);
+        // Sleep for a defined timeout
+        sleep(Duration::from_secs(interval)).await;
     }
 }
 
@@ -454,22 +465,27 @@ async fn handle_request(line: &str, db: &FilterDb) -> Response {
         Ok(req) => req,
         Err(e) => return Response::Error(e.message),
     };
-    let mut db = db.lock().await;
+    let mut db_ref = db.lock().await;
     match request {
         Request::Create {
             name,
             capacity,
             fpp,
         } => {
-            db.entry(name.clone()).or_insert(ScalableBloomFilter::new(
-                name,
-                capacity,
-                fpp,
-                ScaleFactor::SmallScaleSize,
-            ));
+            db_ref
+                .filters
+                .entry(name.clone())
+                .or_insert(ScalableBloomFilter::new(
+                    name,
+                    capacity,
+                    fpp,
+                    ScaleFactor::SmallScaleSize,
+                ));
             Response::Done
         }
-        Request::Set { name, key } => match db.get_mut(&name) {
+        Request::Set { name, key } => match db_ref.filters.get_mut(&name) {
+            // First we check that a warm filter matching the name exists and in case, try to set
+            // the value
             Some(sbf) => {
                 if let Err(e) = sbf.set(key.as_bytes()) {
                     Response::Error(format!(
@@ -480,9 +496,42 @@ async fn handle_request(line: &str, db: &FilterDb) -> Response {
                     Response::Done
                 }
             }
-            None => Response::Error(format!("no scalable filter named {}", name)),
+            // No warm filter found matching the name given, let's check for any cold fitler stored
+            // on disk, if present, pull it back to memory for faster access, marking it as warm
+            // again, then try to set the value
+            None => match db_ref.cold_filters.get(&name) {
+                Some(fname) => {
+                    let path = Path::new(DEFAULT_DATA_DIR).join(fname);
+                    let filter = ScalableBloomFilter::from_file(&path.to_str().unwrap()).await;
+                    match filter {
+                        Ok(mut f) => {
+                            let outcome = if let Err(e) = f.set(key.as_bytes()) {
+                                Response::Error(format!(
+                                    "set \"{}\" into \"{}\" filter failed: {:?}",
+                                    key, name, e
+                                ))
+                            } else {
+                                Response::Done
+                            };
+                            // We want to re-insert the filter into the shared database and remove
+                            // it from the cold filters atomically
+                            let mut db = db.lock().await;
+                            db.filters.insert(f.name().clone(), f);
+                            db.cold_filters.remove(fname);
+                            outcome
+                        }
+                        Err(e) => Response::Error(format!(
+                            "error recovering cold filter named {}: {:?}",
+                            name, e
+                        )),
+                    }
+                }
+                None => Response::Error(format!("no scalable filter named {}", name)),
+            },
         },
-        Request::Check { name, key } => match db.get_mut(&name) {
+        Request::Check { name, key } => match db_ref.filters.get_mut(&name) {
+            // For check operation, the process is analogous to the Set command, we check that a
+            // warm filter matching the name exists and in case, try to set the value
             Some(sbf) => {
                 if sbf.check(key.as_bytes()) {
                     Response::True
@@ -490,9 +539,37 @@ async fn handle_request(line: &str, db: &FilterDb) -> Response {
                     Response::False
                 }
             }
-            None => Response::Error(format!("no scalable filter named {}", name)),
+            // No warm filter found matching the name given, let's check for any cold fitler stored
+            // on disk, if present, pull it back to memory for faster access, marking it as warm
+            // again, then try to set the value
+            None => match db_ref.cold_filters.get(&name) {
+                Some(fname) => {
+                    let path = Path::new(DEFAULT_DATA_DIR).join(fname);
+                    let filter = ScalableBloomFilter::from_file(&path.to_str().unwrap()).await;
+                    match filter {
+                        Ok(mut f) => {
+                            let outcome = if f.check(key.as_bytes()) {
+                                Response::True
+                            } else {
+                                Response::False
+                            };
+                            // We want to re-insert the filter into the shared database and remove
+                            // it from the cold filters atomically
+                            let mut db = db.lock().await;
+                            db.filters.insert(f.name().clone(), f);
+                            db.cold_filters.remove(fname);
+                            outcome
+                        }
+                        Err(e) => Response::Error(format!(
+                            "error recovering cold filter named {}: {:?}",
+                            name, e
+                        )),
+                    }
+                }
+                None => Response::Error(format!("no scalable filter named {}", name)),
+            },
         },
-        Request::Info { name } => match db.get(&name) {
+        Request::Info { name } => match db_ref.filters.get(&name) {
             Some(sbf) => {
                 let sec = sbf.creation_time().timestamp();
                 let lat = sbf.last_access_time().timestamp();
@@ -519,18 +596,18 @@ async fn handle_request(line: &str, db: &FilterDb) -> Response {
             }
             None => Response::Error(format!("no scalable filter named {}", name)),
         },
-        Request::Drop { name } => match db.remove(&name) {
+        Request::Drop { name } => match db_ref.filters.remove(&name) {
             Some(_) => Response::Done,
             None => Response::Error(format!("no scalable filter named {}", name)),
         },
-        Request::Clear { name } => match db.get_mut(&name) {
+        Request::Clear { name } => match db_ref.filters.get_mut(&name) {
             Some(sbf) => {
                 sbf.clear();
                 Response::Done
             }
             None => Response::Error(format!("no scalable filter named {}", name)),
         },
-        Request::Persist { name } => match db.get(&name) {
+        Request::Persist { name } => match db_ref.filters.get(&name) {
             Some(sbf) => match sbf.to_file().await {
                 Ok(()) => Response::Done,
                 Err(e) => Response::Error(format!("persist failed {}", e)),
@@ -546,10 +623,14 @@ async fn handle_request(line: &str, db: &FilterDb) -> Response {
 /// Requires single, already bound `TcpListener` argument
 pub async fn run(listener: TcpListener) -> AsyncResult<()> {
     fs::create_dir_all(DEFAULT_DATA_DIR).await?;
+    let filter_db = Arc::new(Mutex::new(FilterDatabase {
+        filters: HashMap::new(),
+        cold_filters: HashSet::new(),
+    }));
     let mut server = Server {
         listener,
         backoff: BACKOFF,
-        db: Arc::new(Mutex::new(HashMap::new())),
+        db: filter_db,
     };
     server.init().await?;
     server.run().await
