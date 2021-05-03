@@ -84,6 +84,11 @@ impl BloomFilter {
         self.miss
     }
 
+    /// Sets a values into the filter. The value must be provided as a `&[u8]`.
+    ///
+    /// # Errors
+    /// Before the insertion, checks that the filter is not full already, in that case return a
+    /// `BloomFilterError`.
     pub fn set(&mut self, bytes: &[u8]) -> Result<bool, Box<dyn Error>> {
         let mut allbits = true;
         if self.size() == self.capacity() {
@@ -119,6 +124,7 @@ impl BloomFilter {
         self.size = 0;
     }
 
+    #[allow(dead_code)]
     pub async fn to_file(&self, filename: &str) -> AsyncResult<()> {
         let serialized = bincode::serialize(self)?;
         fs::write(filename, &serialized).await?;
@@ -279,6 +285,17 @@ impl ScalableBloomFilter {
         self.last_access_time = Utc::now();
     }
 
+    /// Sets a values into the scalable filter. The value must be provided as a `&[u8]`, before the
+    /// insertion, check that the value isn't already present in the scalable filter, if already
+    /// present return an early `Ok(true)`.
+    ///
+    /// Tries to insert the value into the last inserted filter, if full, create a fresh new filter
+    /// scaling its capacity according to the `ScaleFactor` scale factor set during initialization
+    /// of the object, this can be:
+    ///
+    ///     - `ScaleFactor::SmallScaleSize` 2, more conservative on memory but potentially slower
+    ///     due to the higher number of `BloomFilter` that will be created
+    ///     - `ScaleFactor::LargeScaleSize` 4, faster but more memory hungry
     pub fn set(&mut self, bytes: &[u8]) -> Result<bool, Box<dyn Error>> {
         if self.check(bytes) {
             return Ok(true);
