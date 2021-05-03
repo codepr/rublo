@@ -439,27 +439,22 @@ async fn dump_to_disk(db: &FilterDb, interval: u64) -> AsyncResult<()> {
 async fn dump_cold_filters(db: &FilterDb, interval: u64) -> AsyncResult<()> {
     loop {
         let mut db_ref = db.lock().await;
-        for (k, v) in db_ref.filters.iter() {
+        let dbr = db_ref.deref_mut();
+        for (k, v) in dbr.filters.iter() {
             if Utc::now().timestamp() - &v.last_access_time().timestamp() > COLD_FILTER_TIMEOUT {
                 match v.to_file().await {
-                    Ok(()) => info!("{} filter dumped to disk as deemed cold", k),
+                    Ok(()) => {
+                        dbr.cold_filters.insert(k.clone());
+                        info!("{} filter dumped to disk as deemed cold", k)
+                    }
                     Err(e) => error!("{} filter dump error: {:?}", k, e),
                 }
             }
         }
         let now = Utc::now().timestamp();
-        let cold_filters: Vec<String> = db_ref
+        db_ref
             .filters
-            .iter()
-            .filter(|(_, v)| now - v.last_access_time().timestamp() > COLD_FILTER_TIMEOUT)
-            .map(|(k, _)| k.clone())
-            .collect();
-        for f in cold_filters {
-            db_ref.cold_filters.insert(f);
-        }
-        db_ref.filters.retain(|_, v| {
-            Utc::now().timestamp() - v.last_access_time().timestamp() < COLD_FILTER_TIMEOUT
-        });
+            .retain(|_, v| now - v.last_access_time().timestamp() < COLD_FILTER_TIMEOUT);
         drop(db_ref);
         // Sleep for a defined timeout
         sleep(Duration::from_secs(interval)).await;
@@ -509,8 +504,9 @@ async fn handle_request(line: &str, db: &FilterDb) -> Response {
             // again, then try to set the value
             None => match db_ref.cold_filters.get(&name) {
                 Some(fname) => {
-                    let path = Path::new(DEFAULT_DATA_DIR).join(fname);
+                    let path = Path::new(DEFAULT_DATA_DIR).join(format!("{}.rbl", fname));
                     let filter = ScalableBloomFilter::from_file(&path.to_str().unwrap()).await;
+                    info!("pulling cold filter {} back to memory", fname);
                     match filter {
                         Ok(mut f) => {
                             let outcome = if let Err(e) = f.set(key.as_bytes()) {
@@ -551,8 +547,9 @@ async fn handle_request(line: &str, db: &FilterDb) -> Response {
             // again, then try to check the value
             None => match db_ref.cold_filters.get(&name) {
                 Some(fname) => {
-                    let path = Path::new(DEFAULT_DATA_DIR).join(fname);
+                    let path = Path::new(DEFAULT_DATA_DIR).join(format!("{}.rbl", fname));
                     let filter = ScalableBloomFilter::from_file(&path.to_str().unwrap()).await;
+                    info!("pulling cold filter {} back to memory", fname);
                     match filter {
                         Ok(mut f) => {
                             let outcome = if f.check(key.as_bytes()) {
@@ -585,7 +582,7 @@ async fn handle_request(line: &str, db: &FilterDb) -> Response {
             // warm again, we don't count info call as actually active operation for a filter
             None => match db.cold_filters.get(&name) {
                 Some(fname) => {
-                    let path = Path::new(DEFAULT_DATA_DIR).join(fname);
+                    let path = Path::new(DEFAULT_DATA_DIR).join(format!("{}.rbl", fname));
                     let filter = ScalableBloomFilter::from_file(&path.to_str().unwrap()).await;
                     match filter {
                         Ok(f) => get_filter_info(&f),
