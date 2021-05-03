@@ -216,6 +216,17 @@ pub struct ScalableBloomFilter {
 }
 
 impl ScalableBloomFilter {
+    /// Implements a space-efficient probabilistic bloom filter that grows as more items are added
+    /// according to a given scale factor represented by a `ScaleFactor` argument.
+    ///
+    ///     - `ScaleFactor::SmallScaleSize` 2, more conservative on memory but potentially slower
+    ///     due to the higher number of `BloomFilter` that will be created
+    ///     - `ScaleFactor::LargeScaleSize` 4, faster but more memory hungry
+    ///
+    ///! let mut sbf = ScalableBloomFilter::new("site-hits", 50000, 0.005, ScaleFactor::SmallScaleSize);
+    ///! sbf.set(b"112.78.96.196")?;
+    ///! let present = sbf.check(b"112.77.96.196"); // false
+    ///! let present = sbf.check(b"112.78.96.196"); // true
     pub fn new(name: String, initial_capacity: usize, fpp: f64, scale_factor: ScaleFactor) -> Self {
         Self {
             name,
