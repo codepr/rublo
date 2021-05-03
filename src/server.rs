@@ -48,6 +48,7 @@ impl fmt::Display for ParserError {
 /// - Drop filter-name
 /// - Clear filter-name
 /// - Persist filter-name
+/// - List
 #[derive(Debug, PartialEq)]
 enum Request {
     Create {
@@ -75,6 +76,13 @@ enum Request {
     Persist {
         name: String,
     },
+    List,
+}
+
+struct FilterProps {
+    pub name: String,
+    pub fpp: f64,
+    pub capacity: usize,
 }
 
 enum Response {
@@ -94,6 +102,9 @@ enum Response {
         last_access_time: String,
     },
     Error(String),
+    List {
+        filters: Vec<FilterProps>,
+    },
 }
 
 impl Request {
@@ -197,6 +208,7 @@ impl Request {
                     .map(|s| s.to_string())?;
                 Ok(Request::Persist { name })
             }
+            Some(c) if c == "list" => Ok(Request::List),
             Some(_) => Err(ParserError {
                 message: "unknown command".into(),
             }),
@@ -229,6 +241,10 @@ impl Response {
                 "name: {}\ncapacity: {}\nsize: {}\nspace: {}\nfilters: {}\nhash functions: {}\nhits: {}\nmiss: {}\ncreation: {}\nlast access: {}",
                 name, capacity, size, space, filters, hash_count, hits, miss, creation_time, last_access_time
             ),
+            Response::List { filters } => {
+                let tostr: Vec<String> = filters.iter().map(|x| format!("{} {} {}", x.name, x.capacity, x.fpp)).collect();
+                tostr.join("\n")
+            }
             Response::Error(message) => format!("Error: {}", message),
         }
     }
@@ -312,10 +328,11 @@ impl Server {
     pub async fn init(&mut self) -> AsyncResult<()> {
         let mut db = self.db.lock().await;
         let mut entries = fs::read_dir(DEFAULT_DATA_DIR).await?;
+        info!("scanning {}/ for persistent filters", DEFAULT_DATA_DIR);
         while let Some(entry) = entries.next_entry().await? {
             if let Ok(path) = entry.path().into_os_string().into_string() {
-                info!("found persistent filter named {}", path);
                 let filter = ScalableBloomFilter::from_file(&path).await?;
+                info!("found persistent filter {}", filter);
                 db.filters.insert(filter.name().clone(), filter);
             }
         }
@@ -424,10 +441,10 @@ async fn dump_to_disk(db: &FilterDb, interval: u64) -> AsyncResult<()> {
         // Sleep for a defined timeout
         sleep(Duration::from_secs(interval)).await;
         let db = db.lock().await;
-        for (k, v) in db.filters.iter() {
+        for (_, v) in db.filters.iter() {
             match v.to_file().await {
-                Ok(()) => info!("{} filter dumped to disk", k),
-                Err(e) => error!("{} filter dump error: {:?}", k, e),
+                Ok(()) => info!("{} filter dumped to disk", v),
+                Err(e) => error!("{} filter dump error: {:?}", v, e),
             }
         }
         drop(db);
@@ -440,18 +457,22 @@ async fn dump_cold_filters(db: &FilterDb, interval: u64) -> AsyncResult<()> {
     loop {
         let mut db_ref = db.lock().await;
         let dbr = db_ref.deref_mut();
+        let now = Utc::now().timestamp();
         for (k, v) in dbr.filters.iter() {
-            if Utc::now().timestamp() - &v.last_access_time().timestamp() > COLD_FILTER_TIMEOUT {
+            if now - &v.last_access_time().timestamp() > COLD_FILTER_TIMEOUT {
                 match v.to_file().await {
                     Ok(()) => {
                         dbr.cold_filters.insert(k.clone());
-                        info!("{} filter dumped to disk as deemed cold", k)
+                        info!(
+                            "{} filter dumped to disk as deemed cold - last access time {}",
+                            v,
+                            v.last_access_time()
+                        )
                     }
-                    Err(e) => error!("{} filter dump error: {:?}", k, e),
+                    Err(e) => error!("{} filter dump error: {:?}", v, e),
                 }
             }
         }
-        let now = Utc::now().timestamp();
         db_ref
             .filters
             .retain(|_, v| now - v.last_access_time().timestamp() < COLD_FILTER_TIMEOUT);
@@ -613,6 +634,18 @@ async fn handle_request(line: &str, db: &FilterDb) -> Response {
             },
             None => Response::Error(format!("no scalable filter named {}", name)),
         },
+        Request::List => {
+            let filters = db
+                .filters
+                .iter()
+                .map(|(_, v)| FilterProps {
+                    name: v.name().clone(),
+                    fpp: v.fpp(),
+                    capacity: v.capacity(),
+                })
+                .collect();
+            Response::List { filters }
+        }
     }
 }
 

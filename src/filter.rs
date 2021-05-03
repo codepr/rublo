@@ -243,6 +243,10 @@ impl ScalableBloomFilter {
         &self.name
     }
 
+    pub fn fpp(&self) -> f64 {
+        self.fpp
+    }
+
     pub fn filter_count(&self) -> usize {
         self.filters.len()
     }
@@ -308,6 +312,7 @@ impl ScalableBloomFilter {
     ///     due to the higher number of `BloomFilter` that will be created
     ///     - `ScaleFactor::LargeScaleSize` 4, faster but more memory hungry
     pub fn set(&mut self, bytes: &[u8]) -> Result<bool, Box<dyn Error>> {
+        self.last_access_time = Utc::now();
         if self.check(bytes) {
             return Ok(true);
         }
@@ -324,18 +329,17 @@ impl ScalableBloomFilter {
                 self.fpp * FALSE_POSITIVE_PROBABILITY_RATIO,
             );
         }
-        self.last_access_time = Utc::now();
         let filter = self.filters.last_mut().unwrap();
         filter.set(bytes)
     }
 
     pub fn check(&mut self, bytes: &[u8]) -> bool {
+        self.last_access_time = Utc::now();
         for f in self.filters.iter_mut().rev() {
             if f.check(bytes) {
                 return true;
             }
         }
-        self.last_access_time = Utc::now();
         return false;
     }
 
@@ -357,6 +361,19 @@ impl ScalableBloomFilter {
 
     fn add_filter(&mut self, capacity: usize, fpp: f64) {
         self.filters.push(BloomFilter::new(capacity, fpp))
+    }
+}
+
+impl fmt::Display for ScalableBloomFilter {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "<name={}, capacity={}, fpp={}, size={}>",
+            self.name(),
+            self.capacity(),
+            self.fpp(),
+            self.size()
+        )
     }
 }
 
