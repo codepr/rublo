@@ -1,7 +1,6 @@
 use crate::AsyncResult;
 use bitvec::prelude::*;
 use chrono::{DateTime, Utc};
-use fasthash::{murmur3::Hash32, FastHash};
 use serde::{Deserialize, Serialize};
 use std::error::Error;
 use std::f64;
@@ -95,7 +94,7 @@ impl BloomFilter {
             return Err(Box::new(BloomFilterError("Full capacity reached".into())));
         }
         for i in 0..self.hash_count {
-            let hash = (Hash32::hash_with_seed(bytes, i) as usize) % self.capacity;
+            let hash = (gxhash::gxhash32(bytes, i as i64) as usize) % self.capacity;
             if allbits && self.bitmap[hash] {
                 allbits = false;
             }
@@ -109,7 +108,7 @@ impl BloomFilter {
 
     pub fn check(&mut self, bytes: &[u8]) -> bool {
         for i in 0..self.hash_count {
-            let hash = (Hash32::hash_with_seed(bytes, i) as usize) % self.capacity;
+            let hash = (gxhash::gxhash32(bytes, i as i64) as usize) % self.capacity;
             if self.bitmap[hash] == false {
                 self.miss += 1;
                 return false;
