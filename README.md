@@ -14,3 +14,6 @@ the each filter. A tokio based TCP server exposes the following text protocol:
 - `check filter-name key`
 - `info filter-name`
 - `clear filter-name`
+
+Each command can be executed from any TCP client such as `netcat` or `telnet`.
+Each filter is periodically dumped to disk for disaster recovery.
