@@ -33,18 +33,18 @@ impl fmt::Display for BloomFilterError {
 impl Error for BloomFilterError {}
 
 impl BloomFilter {
-    /// Create a new BloomFilter, a probabilistic space-efficient data structure which is
-    /// used to test if an element is a member of a set, trading precision for efficiency
-    /// and performance, allowing a tiny false-positive probability against a 0 false negative
-    /// probability. This means that when tested, an item might be in the set or it absolutely
-    /// isn't.
-    ///
-    /// The capacity is the number of items expected to be stored in the filter, fpp represents
-    /// the false positive probability.
-    ///
-    /// # Panics
-    ///
-    /// The `new` function will panic if the size is zero or fpp is zero.
+    //! Create a new BloomFilter, a probabilistic space-efficient data structure which is
+    //! used to test if an element is a member of a set, trading precision for efficiency
+    //! and performance, allowing a tiny false-positive probability against a 0 false negative
+    //! probability. This means that when tested, an item might be in the set or it absolutely
+    //! isn't.
+    //!
+    //! The capacity is the number of items expected to be stored in the filter, fpp represents
+    //! the false positive probability.
+    //!
+    //! # Panics
+    //!
+    //! The `new` function will panic if the size is zero or fpp is zero.
     pub fn new(capacity: usize, fpp: f64) -> BloomFilter {
         assert!(capacity > 0 && fpp > 0.);
         let bitmap_size = Self::get_bitmap_size(capacity, fpp);
@@ -53,7 +53,7 @@ impl BloomFilter {
             capacity: bitmap_size,
             size: 0,
             bitmap: bitvec![0u8; bitmap_size],
-            hash_count: hash_count,
+            hash_count,
             hits: 0,
             miss: 0,
         }
@@ -83,11 +83,11 @@ impl BloomFilter {
         self.miss
     }
 
-    /// Sets a values into the filter. The value must be provided as a `&[u8]`.
-    ///
-    /// # Errors
-    /// Before the insertion, checks that the filter is not full already, in that case return a
-    /// `BloomFilterError`.
+    ///! Sets a values into the filter. The value must be provided as a `&[u8]`.
+    ///!
+    ///! # Errors
+    ///! Before the insertion, checks that the filter is not full already, in that case return a
+    ///! `BloomFilterError`.
     pub fn set(&mut self, bytes: &[u8]) -> Result<bool, Box<dyn Error>> {
         let mut allbits = true;
         if self.size() == self.capacity() {
@@ -215,13 +215,13 @@ pub struct ScalableBloomFilter {
 }
 
 impl ScalableBloomFilter {
-    /// Implements a space-efficient probabilistic bloom filter that grows as more items are added
-    /// according to a given scale factor represented by a `ScaleFactor` argument.
-    ///
-    ///     - `ScaleFactor::SmallScaleSize` 2, more conservative on memory but potentially slower
-    ///     due to the higher number of `BloomFilter` that will be created
-    ///     - `ScaleFactor::LargeScaleSize` 4, faster but more memory hungry
-    ///
+    ///!Implements a space-efficient probabilistic bloom filter that grows as more items are added
+    ///!according to a given scale factor represented by a `ScaleFactor` argument.
+    ///!
+    ///!    - `ScaleFactor::SmallScaleSize` 2, more conservative on memory but potentially slower
+    ///!    due to the higher number of `BloomFilter` that will be created
+    ///!    - `ScaleFactor::LargeScaleSize` 4, faster but more memory hungry
+    ///!
     ///! let mut sbf = ScalableBloomFilter::new("site-hits", 50000, 0.005, ScaleFactor::SmallScaleSize);
     ///! sbf.set(b"112.78.96.196")?;
     ///! let present = sbf.check(b"112.77.96.196"); // false
@@ -231,8 +231,8 @@ impl ScalableBloomFilter {
             name,
             initial_capacity,
             filters: Vec::new(),
-            fpp: fpp,
-            scale_factor: scale_factor,
+            fpp,
+            scale_factor,
             creation_time: Utc::now(),
             last_access_time: Utc::now(),
         }
@@ -299,17 +299,17 @@ impl ScalableBloomFilter {
         self.last_access_time = Utc::now();
     }
 
-    /// Sets a values into the scalable filter. The value must be provided as a `&[u8]`, before the
-    /// insertion, check that the value isn't already present in the scalable filter, if already
-    /// present return an early `Ok(true)`.
-    ///
-    /// Tries to insert the value into the last inserted filter, if full, create a fresh new filter
-    /// scaling its capacity according to the `ScaleFactor` scale factor set during initialization
-    /// of the object, this can be:
-    ///
-    ///     - `ScaleFactor::SmallScaleSize` 2, more conservative on memory but potentially slower
-    ///     due to the higher number of `BloomFilter` that will be created
-    ///     - `ScaleFactor::LargeScaleSize` 4, faster but more memory hungry
+    ///! Sets a values into the scalable filter. The value must be provided as a `&[u8]`, before the
+    ///! insertion, check that the value isn't already present in the scalable filter, if already
+    ///! present return an early `Ok(true)`.
+    ///!
+    ///! Tries to insert the value into the last inserted filter, if full, create a fresh new filter
+    ///! scaling its capacity according to the `ScaleFactor` scale factor set during initialization
+    ///! of the object, this can be:
+    ///!
+    ///!     - `ScaleFactor::SmallScaleSize` 2, more conservative on memory but potentially slower
+    ///!     due to the higher number of `BloomFilter` that will be created
+    ///!     - `ScaleFactor::LargeScaleSize` 4, faster but more memory hungry
     pub fn set(&mut self, bytes: &[u8]) -> Result<bool, Box<dyn Error>> {
         self.last_access_time = Utc::now();
         if self.check(bytes) {
@@ -384,7 +384,11 @@ mod scalable_filter_tests {
     fn test_set() {
         let mut sbf =
             ScalableBloomFilter::new("test-sbf".into(), 5, 0.01, ScaleFactor::SmallScaleSize);
-        for word in ["Vega", "Pandora", "Magnetar", "Pulsar", "Nebula"].iter() {
+        for word in [
+            "Nexus", "Ilios", "Vega", "Pandora", "Magnetar", "Pulsar", "Nebula",
+        ]
+        .iter()
+        {
             sbf.set(word.as_bytes()).unwrap();
         }
         for want in [
@@ -400,7 +404,11 @@ mod scalable_filter_tests {
             assert_eq!(sbf.check(want.0.as_bytes()), want.1);
         }
         assert_eq!(sbf.filter_count(), 1);
-        for word in ["Collider", "Neutron", "Positron", "Hyperion", "Arcadia"].iter() {
+        for word in [
+            "Collider", "Neutron", "Positron", "Hyperion", "Arcadia", "Pantheon",
+        ]
+        .iter()
+        {
             sbf.set(word.as_bytes()).unwrap();
         }
         assert_eq!(sbf.size(), 2);
